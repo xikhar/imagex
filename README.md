@@ -1,36 +1,50 @@
-# ImageX
+<div align="center">
+  <img src="./src/web/logo/logo-white.svg" alt="Imagex logo" width="88" height="88" />
+  <h1>Imagex</h1>
+  <p><strong>A local-first visual workspace for building repeatable AI image workflows.</strong></p>
+  <p>
+    Compose prompts, references, brand assets, edits, and generation steps on a canvas,
+    then run only the outputs you need.
+  </p>
+</div>
 
-ImageX is a local-first, node-based editor for AI image generation workflows. Build a DAG of prompts, image references, colors, local assets, image-edit steps, and output nodes; preview image transforms locally; then run selected output generations through the local daemon.
+# 
 
-The app is currently a Vite/React web UI plus a local Express daemon. It is not an Electron app.
+Imagex helps you turn scattered image-generation experiments into reusable workflows. Instead of keeping prompts, references, edits, and output variations in separate places, you arrange them visually, connect the pieces that belong together, preview image edits locally, and generate the final outputs you choose.
 
-## Features
+It is built for workflows where consistency matters: brand explorations, product mockups, visual campaigns, character or style studies, and any process where one generated image may feed the next step.
 
-- **Visual workflow editor**: compose generation graphs with React Flow nodes, edges, dynamic handles, frames, and keyboard shortcuts.
-- **Floating editor shell**: full-screen canvas with floating workflow tabs, logo/menu, sidebar, run controls, side panels, and inspector.
-- **Structured prompt compilation**: prompts compile into deterministic JSON with image references instead of ad hoc prose concatenation.
-- **Local image previews**: crop, rotate/flip, blur, and color-balance render through the frontend WebGL pipeline.
-- **Output-node generation**: each output node is a generation target. Run selected outputs, force upstream dependencies, or run all outputs in dependency order.
-- **Durable generation jobs**: daemon-managed runs survive refreshes and recover partial output state after daemon restart.
-- **Asset library**: manage imported images, reusable node-snippet assets, and generated output images from run history in one panel.
-- **Local-first storage**: projects, workflows, assets, auth, run metadata, and generated files live under `IMAGEX_HOME` or `~/.imagex`.
-- **Codex image provider**: generation uses the OpenAI Codex Responses image tool transport, with `CODEX_API_BASE` override support for local mock testing.
 
-## Tech Stack
+https://github.com/user-attachments/assets/1eb75c6d-c716-4d8e-aaa5-4fee26065e56
 
-- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui, React Flow, Zustand, lucide-react, react-colorful.
-- **Image pipeline**: raw WebGL for frontend previews/export/download paths, plus `photon-node` for daemon-side transform parity before generation.
-- **Backend**: Node.js 20+, Express, ESM TypeScript.
-- **Provider/auth**: OpenAI Codex OAuth and Responses image tool transport.
 
-## Development
+
+## Highlights
+
+- **Visual canvas**: build image workflows with prompt, image, color, file, edit, and output nodes.
+- **Selective runs**: run one output, multiple selected outputs, rerun connected inputs, or regenerate everything in order.
+- **Reusable assets**: manage imported images, saved node snippets, and generated outputs in the project asset library.
+- **Local previews**: crop, rotate, flip, blur, and color-balance images before sending them into generation.
+- **Durable runs**: refreshes and restarts recover generation state instead of losing track of in-progress work.
+- **Multi-workflow projects**: keep related experiments together and switch between workflows from the top bar.
+- **Local-first storage**: projects, assets, auth, run metadata, and generated files stay on your machine.
+
+## What You Can Build
+
+- Brand logo explorations that feed into packaging or product-shot workflows.
+- Product images using a logo, material references, background directions, and palette nodes.
+- Visual systems where one generated concept becomes a reference for later outputs.
+- Before/after image-edit chains that can be reused across multiple outputs.
+- Prompt kits and reusable node snippets for repeated creative directions.
+
+## Quick Start
 
 ### Prerequisites
 
 - Node.js 20+
 - npm
 
-### Setup
+### Install
 
 ```bash
 git clone https://github.com/shikhargen/imagex.git
@@ -38,20 +52,20 @@ cd imagex
 npm install
 ```
 
-### Run The App
+### Run
 
 ```bash
 npm run dev
 ```
 
-This starts:
+This starts the local API and web UI:
 
-- Daemon API: `http://127.0.0.1:3847`
-- Web UI: `http://127.0.0.1:5173`
+- App: `http://127.0.0.1:5173`
+- API: `http://127.0.0.1:3847`
 
-Open `http://127.0.0.1:5173`.
+Open `http://127.0.0.1:5173` in your browser.
 
-### Authentication
+## Authentication
 
 Authenticate with Codex:
 
@@ -72,32 +86,39 @@ Log out:
 npx tsx src/cli/index.ts logout
 ```
 
-### Local Mock Provider
+## Development
 
-For local generation testing without real image calls, run a compatible mock service separately and start ImageX with:
+| Script               | Description                                      |
+| -------------------- | ------------------------------------------------ |
+| `npm run dev`        | Start the local API and Vite dev server          |
+| `npm run dev:web`    | Start only the Vite dev server                   |
+| `npm run dev:daemon` | Start only the local API                         |
+| `npm run check`      | Type-check with TypeScript                       |
+| `npm run test:webgl` | Run the browser WebGL image-pipeline verifier    |
+| `npm test`           | Run typecheck and the WebGL verifier             |
+| `npm run build`      | Build TypeScript and the web UI                  |
+| `npm start`          | Run the built app without opening a browser      |
+
+For local generation testing without real image calls, run a compatible mock service separately and start Imagex with:
 
 ```bash
 CODEX_API_BASE=http://127.0.0.1:8787/backend-api/codex/responses npm run dev
 ```
 
-## Scripts
+## How It Works
 
-| Script               | Description                                             |
-| -------------------- | ------------------------------------------------------- |
-| `npm run dev`        | Start daemon and Vite dev server                        |
-| `npm run dev:web`    | Start only the Vite dev server                          |
-| `npm run dev:daemon` | Start only the local daemon                             |
-| `npm run check`      | Type-check with TypeScript                              |
-| `npm run test:webgl` | Run the browser WebGL image-pipeline verifier           |
-| `npm test`           | Run typecheck and WebGL verifier                        |
-| `npm run build`      | Build TypeScript and the web UI                         |
-| `npm start`          | Run the built daemon/UI without opening a browser       |
+Imagex is a Vite/React web app backed by a local Express API. The editor stores project files locally, renders interactive image previews in the browser, and sends generation requests through the local API so run state can be saved and recovered.
+
+- **Frontend**: React 19, TypeScript, Vite, Tailwind CSS v4, shadcn/ui, React Flow, Zustand.
+- **Image previews**: raw WebGL for browser-side preview, export, and download paths.
+- **Local API**: Node.js 20+, Express, ESM TypeScript.
+- **Generation transport**: OpenAI Codex OAuth and Responses image tool support.
 
 ## Storage
 
-By default ImageX stores local data in `~/.imagex`. Set `IMAGEX_HOME` to use a different root.
+By default Imagex stores local data in `~/.imagex`. Set `IMAGEX_HOME` to use a different root.
 
-Imported image assets and reusable node-snippet assets live under each project's `assets/` directory. Generated output assets are flattened from run history and are stored per project under:
+Imported images and reusable node snippets live under each project's `assets/` directory. Generated outputs are stored per project under:
 
 ```text
 outputs/runs/index.json
@@ -114,7 +135,7 @@ src/
   auth/           # Codex OAuth storage and auth helpers
   cli/            # CLI commands
   config/         # Local path configuration
-  daemon/         # Express API, generation jobs, file serving
+  daemon/         # Local API, generation jobs, file serving
   projects/       # Project persistence
   providers/      # Provider transports
   shared/         # Shared persisted types
