@@ -250,7 +250,7 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
     }
 
     for (const id of outputIds) {
-      dependencies.set(id, new Set(trace(id, new Set([id]))));
+      dependencies.set(id, new Set(trace(id, new Set())));
     }
     return dependencies;
   }

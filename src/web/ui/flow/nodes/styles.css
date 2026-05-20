@@ -412,8 +412,28 @@
 .ix-field [data-slot='textarea'] {
   min-height: 3.25rem;
   padding: 0.35rem 0.625rem 0.625rem;
-  resize: vertical;
+  resize: none;
   line-height: 1.45;
+  scrollbar-width: thin;
+  scrollbar-color: rgba(255, 255, 255, 0.2) transparent;
+}
+
+.ix-field [data-slot='textarea']::-webkit-scrollbar {
+  width: 5px;
+}
+
+.ix-field [data-slot='textarea']::-webkit-scrollbar-track,
+.ix-field [data-slot='textarea']::-webkit-scrollbar-corner {
+  background: transparent;
+}
+
+.ix-field [data-slot='textarea']::-webkit-scrollbar-thumb {
+  background: rgba(255, 255, 255, 0.2);
+  border-radius: 3px;
+}
+
+.ix-field [data-slot='textarea']::-webkit-scrollbar-thumb:hover {
+  background: rgba(255, 255, 255, 0.32);
 }
 
 .ix-field [data-slot='input']::placeholder,
