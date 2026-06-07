@@ -10,7 +10,7 @@ const program = new Command();
 program
   .name('imagex')
   .description('Local-first AI image workflow app')
-  .version('0.1.0');
+  .version('1.0.0');
 
 program
   .command('auth')

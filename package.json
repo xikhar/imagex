@@ -10,29 +10,45 @@
   "bin": {
     "imagex": "./dist/cli/index.js"
   },
+  "files": [
+    "dist",
+    "README.md",
+    "LICENSE"
+  ],
+  "engines": {
+    "node": ">=20"
+  },
   "scripts": {
     "build": "tsc && vite build",
     "check": "tsc --noEmit",
     "dev": "node scripts/dev.mjs",
     "dev:web": "vite --host 127.0.0.1",
     "dev:daemon": "tsx src/cli/index.ts ui --no-open",
+    "prepack": "npm run build",
     "start": "node dist/cli/index.js ui --no-open",
     "test": "npm run check && npm run test:webgl",
     "test:webgl": "node scripts/verify-webgl-pipeline.mjs"
   },
   "dependencies": {
     "@earendil-works/pi-ai": "^0.74.0",
+    "@silvia-odwyer/photon-node": "^0.3.4",
+    "commander": "^14.0.3",
+    "express": "^5.2.1"
+  },
+  "devDependencies": {
     "@fontsource-variable/geist": "^5.2.8",
     "@fontsource-variable/jetbrains-mono": "^5.2.8",
-    "@silvia-odwyer/photon-node": "^0.3.4",
     "@tailwindcss/vite": "^4.3.0",
+    "@types/color": "^4.2.1",
+    "@types/express": "^5.0.6",
+    "@types/node": "^25.6.2",
+    "@types/react": "^19.2.14",
+    "@types/react-dom": "^19.2.3",
     "@vitejs/plugin-react": "^6.0.1",
     "@xyflow/react": "^12.10.2",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "color": "^5.0.3",
-    "commander": "^14.0.3",
-    "express": "^5.2.1",
     "lucide-react": "^1.14.0",
     "radix-ui": "^1.4.3",
     "react": "^19.2.6",
@@ -41,18 +57,11 @@
     "shadcn": "^4.7.0",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.3.0",
+    "tsx": "^4.21.0",
     "tw-animate-css": "^1.4.0",
     "typescript": "^6.0.3",
     "vite": "^8.0.11",
+    "vite-plugin-svgr": "^5.2.0",
     "zustand": "^5.0.13"
-  },
-  "devDependencies": {
-    "@types/color": "^4.2.1",
-    "@types/express": "^5.0.6",
-    "@types/node": "^25.6.2",
-    "@types/react": "^19.2.14",
-    "@types/react-dom": "^19.2.3",
-    "tsx": "^4.21.0",
-    "vite-plugin-svgr": "^5.2.0"
   }
 }
