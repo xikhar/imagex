@@ -6,17 +6,7 @@ import { createServer, type Server } from 'node:http';
 import { dirname, extname, join, relative, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 import photon from '@silvia-odwyer/photon-node';
-
-function log(scope: string, message: string, extra?: Record<string, unknown>): void {
-  const ts = new Date().toISOString();
-  const extraStr = extra ? ` ${JSON.stringify(extra)}` : '';
-  console.log(`[${ts}] [${scope}] ${message}${extraStr}`);
-}
-
-function logRequest(req: Request, res: Response, start: number): void {
-  const duration = Date.now() - start;
-  log('http', `${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
-}
+import { readJsonFile, writeJsonFile } from '../config/jsonStore.js';
 import { imagexPaths } from '../config/paths.js';
 import { getCodexAuthStatus, resolveCodexBearerToken } from '../auth/store.js';
 import { generateCodexImages } from '../providers/codexImage.js';
@@ -59,6 +49,17 @@ import {
   saveProjectWorkflow,
   type CreateProjectInput,
 } from '../projects/store.js';
+
+function log(scope: string, message: string, extra?: Record<string, unknown>): void {
+  const ts = new Date().toISOString();
+  const extraStr = extra ? ` ${JSON.stringify(extra)}` : '';
+  console.log(`[${ts}] [${scope}] ${message}${extraStr}`);
+}
+
+function logRequest(req: Request, res: Response, start: number): void {
+  const duration = Date.now() - start;
+  log('http', `${req.method} ${req.path} ${res.statusCode} ${duration}ms`);
+}
 
 export type StartServerOptions = {
   host: string;
@@ -122,22 +123,21 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
   }
 
   async function readGenerationJobs(projectId: string): Promise<DurableGenerationJob[]> {
-    const raw = await readFile(generationJobsFile(projectId), 'utf8').catch(() => '[]');
-    const parsed = JSON.parse(raw) as DurableGenerationJob[];
+    const parsed = await readJsonFile<DurableGenerationJob[]>(generationJobsFile(projectId), []);
     return Array.isArray(parsed) ? parsed : [];
   }
 
   async function writeGenerationJobs(projectId: string, jobs: DurableGenerationJob[]): Promise<void> {
     const file = generationJobsFile(projectId);
     await mkdir(dirname(file), { recursive: true });
-    await writeFile(file, `${JSON.stringify(jobs.slice(-50), null, 2)}\n`, 'utf8');
+    await writeJsonFile(file, jobs.slice(-50));
   }
 
   async function saveGenerationJob(job: DurableGenerationJob): Promise<void> {
     job.updatedAt = new Date().toISOString();
     const runDir = generationRunDir(job.projectId, job.id);
     await mkdir(runDir, { recursive: true });
-    await writeFile(generationRunJobFile(job.projectId, job.id), `${JSON.stringify(job, null, 2)}\n`, 'utf8');
+    await writeJsonFile(generationRunJobFile(job.projectId, job.id), job);
 
     const jobs = await readGenerationJobs(job.projectId);
     const index = jobs.findIndex((candidate) => candidate.id === job.id);
@@ -406,7 +406,7 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
 
     jobs[jobIndex] = job;
     await writeGenerationJobs(projectId, jobs);
-    await writeFile(generationRunJobFile(projectId, job.id), `${JSON.stringify(job, null, 2)}\n`, 'utf8');
+    await writeJsonFile(generationRunJobFile(projectId, job.id), job);
     return {
       assets: await listProjectOutputAssets(projectId),
       previous,

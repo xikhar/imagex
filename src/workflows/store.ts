@@ -1,5 +1,6 @@
-import { mkdir, readFile, readdir, writeFile } from 'node:fs/promises';
+import { mkdir, readdir } from 'node:fs/promises';
 import { join } from 'node:path';
+import { readJsonFile, writeJsonFile } from '../config/jsonStore.js';
 import { imagexPaths } from '../config/paths.js';
 import type { ImageXWorkflow } from '../shared/types.js';
 import { createDefaultWorkflow } from './defaults.js';
@@ -11,7 +12,7 @@ export async function listWorkflows(): Promise<ImageXWorkflow[]> {
   const workflows = await Promise.all(
     files
       .filter((file) => file.endsWith('.imagex.json'))
-      .map(async (file) => JSON.parse(await readFile(join(dir, file), 'utf8')) as ImageXWorkflow)
+      .map(async (file) => readJsonFile<ImageXWorkflow>(join(dir, file)))
   );
 
   if (workflows.length > 0) return workflows;
@@ -28,6 +29,6 @@ export async function saveWorkflow(workflow: ImageXWorkflow): Promise<ImageXWork
     ...workflow,
     updatedAt: new Date().toISOString(),
   };
-  await writeFile(join(dir, `${updated.id}.imagex.json`), `${JSON.stringify(updated, null, 2)}\n`, 'utf8');
+  await writeJsonFile(join(dir, `${updated.id}.imagex.json`), updated);
   return updated;
 }

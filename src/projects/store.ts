@@ -1,6 +1,7 @@
 import { randomUUID } from 'node:crypto';
-import { mkdir, readFile, readdir, rm, writeFile } from 'node:fs/promises';
+import { mkdir, readdir, rm, writeFile } from 'node:fs/promises';
 import { extname, join } from 'node:path';
+import { readJsonFile, writeJsonFile } from '../config/jsonStore.js';
 import { imagexPaths } from '../config/paths.js';
 import type {
   ImageXProject,
@@ -42,17 +43,17 @@ export async function listProjects(): Promise<ImageXProjectSummary[]> {
 
 export async function getProject(id: string): Promise<ImageXProject> {
   const dir = projectDir(id);
-  let metadata = JSON.parse(await readFile(join(dir, metadataFile), 'utf8')) as ImageXProjectMetadata;
+  let metadata = await readJsonFile<ImageXProjectMetadata>(join(dir, metadataFile));
   assertProjectMetadata(metadata);
   const activeWorkflowFile = metadata.workflows?.[0]?.file || metadata.workflowFile;
-  const rawWorkflow = JSON.parse(await readFile(join(dir, activeWorkflowFile), 'utf8')) as Partial<ImageXWorkflow>;
+  const rawWorkflow = await readJsonFile<Partial<ImageXWorkflow>>(join(dir, activeWorkflowFile));
   const workflow = normalizeWorkflow(rawWorkflow, metadata);
   if (!metadata.workflows?.length || metadata.workflows[0]?.id === 'default') {
     metadata = {
       ...metadata,
       workflows: [{ id: workflow.id, title: workflow.name, file: activeWorkflowFile }],
     };
-    await writeFile(join(dir, metadataFile), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+    await writeJsonFile(join(dir, metadataFile), metadata);
   }
   return { metadata, workflow };
 }
@@ -79,8 +80,8 @@ export async function createProject(input: CreateProjectInput): Promise<ImageXPr
 
   await mkdir(join(dir, metadata.assetsDir), { recursive: true });
   await mkdir(join(dir, metadata.outputsDir), { recursive: true });
-  await writeFile(join(dir, metadataFile), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
-  await writeFile(join(dir, metadata.workflowFile), `${JSON.stringify(workflow, null, 2)}\n`, 'utf8');
+  await writeJsonFile(join(dir, metadataFile), metadata);
+  await writeJsonFile(join(dir, metadata.workflowFile), workflow);
   return { metadata, workflow };
 }
 
@@ -92,7 +93,7 @@ export async function renameProject(projectId: string, title: string): Promise<I
     title: title.trim() || project.metadata.title,
     updatedAt,
   };
-  await writeFile(join(projectDir(projectId), metadataFile), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+  await writeJsonFile(join(projectDir(projectId), metadataFile), metadata);
   return { metadata, workflow: project.workflow };
 }
 
@@ -115,8 +116,8 @@ export async function saveProjectWorkflow(id: string, workflow: ImageXWorkflow):
     workflows: upsertWorkflowEntry(project.metadata, workflowEntry, updatedWorkflow.name),
   };
   const dir = projectDir(id);
-  await writeFile(join(dir, workflowEntry.file), `${JSON.stringify(updatedWorkflow, null, 2)}\n`, 'utf8');
-  await writeFile(join(dir, metadataFile), `${JSON.stringify(updatedMetadata, null, 2)}\n`, 'utf8');
+  await writeJsonFile(join(dir, workflowEntry.file), updatedWorkflow);
+  await writeJsonFile(join(dir, metadataFile), updatedMetadata);
   return { metadata: updatedMetadata, workflow: updatedWorkflow };
 }
 
@@ -130,8 +131,8 @@ export async function createProjectWorkflow(projectId: string, title = 'Untitled
     workflows: [...workflowEntries(project.metadata), { id: workflow.id, title: workflow.name, file }],
   };
   const dir = projectDir(projectId);
-  await writeFile(join(dir, file), `${JSON.stringify(workflow, null, 2)}\n`, 'utf8');
-  await writeFile(join(dir, metadataFile), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+  await writeJsonFile(join(dir, file), workflow);
+  await writeJsonFile(join(dir, metadataFile), metadata);
   return { metadata, workflow };
 }
 
@@ -139,7 +140,7 @@ export async function loadProjectWorkflow(projectId: string, workflowId: string)
   const project = await getProject(projectId);
   const entry = workflowEntries(project.metadata).find((candidate) => candidate.id === workflowId);
   if (!entry) throw new Error('Workflow not found.');
-  const rawWorkflow = JSON.parse(await readFile(join(projectDir(projectId), entry.file), 'utf8')) as Partial<ImageXWorkflow>;
+  const rawWorkflow = await readJsonFile<Partial<ImageXWorkflow>>(join(projectDir(projectId), entry.file));
   return { metadata: project.metadata, workflow: normalizeWorkflow(rawWorkflow, project.metadata) };
 }
 
@@ -149,7 +150,7 @@ export async function deleteProjectWorkflow(projectId: string, workflowId: strin
   if (entries.length <= 1) throw new Error('Cannot delete the only workflow in a project.');
   const nextEntries = entries.filter((entry) => entry.id !== workflowId);
   const metadata = { ...project.metadata, workflows: nextEntries, updatedAt: new Date().toISOString() };
-  await writeFile(join(projectDir(projectId), metadataFile), `${JSON.stringify(metadata, null, 2)}\n`, 'utf8');
+  await writeJsonFile(join(projectDir(projectId), metadataFile), metadata);
   return loadProjectWorkflow(projectId, nextEntries[0]!.id);
 }
 
@@ -392,8 +393,7 @@ function sanitizeNodeAssetEdges(edges: ImageXEdge[], nodes: ImageXNode[]): Image
 
 async function readAssetsManifest(metadata: ImageXProjectMetadata): Promise<ImageXAsset[]> {
   const manifestPath = join(projectDir(metadata.id), metadata.assetsDir, assetsManifestFile);
-  const raw = await readFile(manifestPath, 'utf8').catch(() => '[]');
-  const assets = JSON.parse(raw) as ImageXAsset[];
+  const assets = await readJsonFile<ImageXAsset[]>(manifestPath, []);
   return Array.isArray(assets)
     ? assets.map((asset) => ({
         ...asset,
@@ -404,8 +404,7 @@ async function readAssetsManifest(metadata: ImageXProjectMetadata): Promise<Imag
 
 async function readNodeAssetsManifest(metadata: ImageXProjectMetadata): Promise<ImageXNodeAsset[]> {
   const manifestPath = join(projectDir(metadata.id), metadata.assetsDir, nodeAssetsManifestFile);
-  const raw = await readFile(manifestPath, 'utf8').catch(() => '[]');
-  const assets = JSON.parse(raw) as ImageXNodeAsset[];
+  const assets = await readJsonFile<ImageXNodeAsset[]>(manifestPath, []);
   return Array.isArray(assets)
     ? assets
         .map((asset) => {
@@ -427,12 +426,12 @@ function assetUrl(projectId: string, assetId: string): string {
 
 async function writeAssetsManifest(metadata: ImageXProjectMetadata, assets: ImageXAsset[]): Promise<void> {
   await mkdir(join(projectDir(metadata.id), metadata.assetsDir), { recursive: true });
-  await writeFile(join(projectDir(metadata.id), metadata.assetsDir, assetsManifestFile), `${JSON.stringify(assets, null, 2)}\n`, 'utf8');
+  await writeJsonFile(join(projectDir(metadata.id), metadata.assetsDir, assetsManifestFile), assets);
 }
 
 async function writeNodeAssetsManifest(metadata: ImageXProjectMetadata, assets: ImageXNodeAsset[]): Promise<void> {
   await mkdir(join(projectDir(metadata.id), metadata.assetsDir), { recursive: true });
-  await writeFile(join(projectDir(metadata.id), metadata.assetsDir, nodeAssetsManifestFile), `${JSON.stringify(assets, null, 2)}\n`, 'utf8');
+  await writeJsonFile(join(projectDir(metadata.id), metadata.assetsDir, nodeAssetsManifestFile), assets);
 }
 
 function extensionForMime(mimeType: string): string | null {
@@ -472,7 +471,7 @@ function upsertWorkflowEntry(
 
 async function readProjectSummary(id: string): Promise<ImageXProjectSummary> {
   const dir = projectDir(id);
-  const metadata = JSON.parse(await readFile(join(dir, metadataFile), 'utf8')) as ImageXProjectMetadata;
+  const metadata = await readJsonFile<ImageXProjectMetadata>(join(dir, metadataFile));
   assertProjectMetadata(metadata);
   const summary: ImageXProjectSummary = {
     id: metadata.id,

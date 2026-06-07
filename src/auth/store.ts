@@ -1,8 +1,9 @@
-import { mkdir, readFile, rm, writeFile } from 'node:fs/promises';
+import { mkdir, rm } from 'node:fs/promises';
 import { dirname } from 'node:path';
 import type { OAuthCredentials, OAuthProviderId } from '@earendil-works/pi-ai/oauth';
 import { getOAuthApiKey } from '@earendil-works/pi-ai/oauth';
 import { imagexPaths } from '../config/paths.js';
+import { readJsonFile, writeJsonFile } from '../config/jsonStore.js';
 
 export type AuthStore = Record<OAuthProviderId, OAuthCredentials>;
 
@@ -10,7 +11,7 @@ const codexProviderId = 'openai-codex';
 
 export async function loadAuthStore(): Promise<AuthStore> {
   try {
-    return JSON.parse(await readFile(imagexPaths().authFile, 'utf8')) as AuthStore;
+    return await readJsonFile<AuthStore>(imagexPaths().authFile);
   } catch (error) {
     if ((error as NodeJS.ErrnoException).code === 'ENOENT') return {};
     throw error;
@@ -20,10 +21,7 @@ export async function loadAuthStore(): Promise<AuthStore> {
 export async function saveAuthStore(auth: AuthStore): Promise<void> {
   const authFile = imagexPaths().authFile;
   await mkdir(dirname(authFile), { recursive: true, mode: 0o700 });
-  await writeFile(authFile, `${JSON.stringify(auth, null, 2)}\n`, {
-    encoding: 'utf8',
-    mode: 0o600,
-  });
+  await writeJsonFile(authFile, auth, { mode: 0o600 });
 }
 
 export async function clearAuthStore(): Promise<void> {
