@@ -4,6 +4,8 @@ import tailwindcss from '@tailwindcss/vite';
 import path from 'node:path';
 import svgr from 'vite-plugin-svgr';
 
+const daemonTarget = process.env.IMAGEX_DAEMON_URL || `http://127.0.0.1:${process.env.IMAGEX_DAEMON_PORT || '3847'}`;
+
 export default defineConfig({
   root: 'src/web',
   plugins: [react(), tailwindcss(), svgr()],
@@ -20,8 +22,8 @@ export default defineConfig({
     host: '127.0.0.1',
     port: 5173,
     proxy: {
-      '/api': 'http://127.0.0.1:3847',
-      '/outputs': 'http://127.0.0.1:3847',
+      '/api': daemonTarget,
+      '/outputs': daemonTarget,
     },
   },
 });

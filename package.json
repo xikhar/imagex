@@ -26,7 +26,8 @@
     "dev:daemon": "tsx src/cli/index.ts ui --no-open",
     "prepack": "npm run build",
     "start": "node dist/cli/index.js ui --no-open",
-    "test": "npm run check && npm run test:unit && npm run test:webgl",
+    "test": "npm run check && npm run test:unit && npm run test:webgl && npm run test:e2e",
+    "test:e2e": "node scripts/verify-workflow-e2e.mjs",
     "test:unit": "tsx --test tests/**/*.test.ts",
     "test:webgl": "node scripts/verify-webgl-pipeline.mjs"
   },

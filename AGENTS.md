@@ -18,8 +18,9 @@ The current checkout is a Vite/React web app plus a local Express daemon. Do not
   - Web only: `npm run dev:web`
   - Daemon only: `npm run dev:daemon`
   - Type check: `npm run check`
-  - Tests: `npm test` runs typecheck plus the WebGL image-pipeline browser verifier
+  - Tests: `npm test` runs typecheck, unit tests, WebGL browser verification, and workflow E2E verification
   - WebGL verifier only: `npm run test:webgl`
+  - Workflow E2E verifier only: `npm run test:e2e`
   - Production build: `npm run build`
   - Start built daemon/UI: `npm start`
 - CLI commands:
@@ -77,7 +78,7 @@ Gitignored local notes may exist. Treat them as private context only; do not quo
   - `outputs/runs/index.json` tracks the newest 50 run records in chronological creation order.
   - `outputs/runs/<job-id>/job.json` stores the full run record.
   - `outputs/runs/<job-id>/<output-node-id>/` stores generated files for that output node.
-- `/api/projects/:projectId/generate-status` is the recovery source of truth after refresh or daemon restart. If a persisted job is still marked running but no active in-memory job exists, reconcile it to `partial` or `error` based on saved images.
+- `/api/projects/:projectId/generate-status` is the recovery source of truth after refresh or daemon restart. If a persisted job is still marked running but no active in-memory job exists, reconcile complete saved outputs to `done`, partial saved outputs to `partial`, and empty outputs to `error`.
 - `/api/projects/:projectId/generate/cancel` aborts the active provider requests and persists partial output state. UI cancel controls should call this endpoint before clearing local state.
 - Do not reintroduce client-only polling as the source of truth for generation progress. Stream events and polling should both apply the same `GenerationJobStatus` shape.
 - `/api/projects/:projectId/output-assets` exposes generated output images as a flattened asset list. Rename/delete operations update the durable run `job.json` and `outputs/runs/index.json`; delete also removes the generated file when it is still under the project outputs root.
@@ -145,6 +146,7 @@ When changing persistence, include schema compatibility for existing files under
 - Changes touching build config, daemon, provider, or packaging: run `npm run build`.
 - UI behavior changes: run `npm run dev` and inspect `http://127.0.0.1:5173`.
 - Generation changes: if auth is unavailable, still verify compile endpoints and UI state; do not claim live image generation worked.
+- Workflow browser regressions: run `npm run test:e2e`. It starts ImageX with a temp `IMAGEX_HOME`, Vite with `IMAGEX_DAEMON_URL`, Chrome through DevTools Protocol, and a local mock Codex Responses endpoint.
 
 ## Installed Skills
 
