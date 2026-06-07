@@ -10,6 +10,8 @@ import { readJsonFile, writeJsonFile } from '../config/jsonStore.js';
 import { imagexPaths } from '../config/paths.js';
 import { getCodexAuthStatus, resolveCodexBearerToken } from '../auth/store.js';
 import { generateCodexImages } from '../providers/codexImage.js';
+import { reconcileStoppedGenerationJob } from './generationRecovery.js';
+import { outputDependencies, planOutputRun, storedImagesForOutput } from './generationPlanner.js';
 import type {
   GenerateWorkflowRequest,
   GenerateWorkflowRunRequest,
@@ -150,27 +152,6 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
     return [...jobs].sort((left, right) => right.updatedAt.localeCompare(left.updatedAt))[0] || null;
   }
 
-  function outputGenerationState(node: ImageXNode): OutputNodeGenerationState | null {
-    const value = node.data.generation;
-    if (!value || typeof value !== 'object') return null;
-    const state = value as OutputNodeGenerationState;
-    return Array.isArray(state.images) ? state : null;
-  }
-
-  function storedImagesForOutput(node: ImageXNode): GeneratedImage[] {
-    const generation = outputGenerationState(node);
-    if (generation?.images.length) return generation.images.filter((image) => existsSync(image.path));
-    const urls = Array.isArray(node.data.previewUrls) ? node.data.previewUrls : [];
-    return urls
-      .filter((url): url is string => typeof url === 'string' && url.length > 0)
-      .map((url, index) => ({
-        id: `${node.id}-stored-${index}`,
-        path: outputPathFromProjectUrl(String(url)),
-        url,
-      }))
-      .filter((image) => Boolean(image.path) && existsSync(image.path));
-  }
-
   function outputPathFromProjectUrl(url: string): string {
     const match = url.match(/^\/api\/projects\/([^/]+)\/outputs\/(.+?)(?:[?#].*)?$/);
     if (!match) return '';
@@ -228,79 +209,6 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
     };
     job.outputs[outputNodeId] = next;
     return patchWorkflowOutputGeneration(workflow, outputNodeId, next);
-  }
-
-  function outputDependencies(workflow: ImageXWorkflow): Map<string, Set<string>> {
-    const outputIds = new Set(workflow.nodes.filter((node) => node.type === 'codex-output').map((node) => node.id));
-    const dependencies = new Map<string, Set<string>>();
-
-    function trace(nodeId: string, visited: Set<string>): string[] {
-      if (visited.has(nodeId)) return [];
-      visited.add(nodeId);
-      const found: string[] = [];
-      for (const edge of workflow.edges) {
-        if (edge.target !== nodeId) continue;
-        if (outputIds.has(edge.source)) {
-          found.push(edge.source);
-        } else {
-          found.push(...trace(edge.source, visited));
-        }
-      }
-      return found;
-    }
-
-    for (const id of outputIds) {
-      dependencies.set(id, new Set(trace(id, new Set())));
-    }
-    return dependencies;
-  }
-
-  function planOutputRun(
-    workflow: ImageXWorkflow,
-    requestedOutputNodeIds: string[] | undefined,
-    mode: GenerationRunMode,
-  ): { plannedOutputNodeIds: string[]; levels: string[][]; dependencies: Map<string, Set<string>> } {
-    const outputNodes = workflow.nodes.filter((node) => node.type === 'codex-output');
-    const outputIds = new Set(outputNodes.map((node) => node.id));
-    const nodesById = new Map(outputNodes.map((node) => [node.id, node]));
-    const dependencies = outputDependencies(workflow);
-    const requested = mode === 'all'
-      ? outputNodes.map((node) => node.id)
-      : (requestedOutputNodeIds || []).filter((id) => outputIds.has(id));
-    const planned = new Set<string>();
-
-    function includeWithDeps(id: string): void {
-      if (!outputIds.has(id) || planned.has(id)) return;
-      const deps = dependencies.get(id) || new Set<string>();
-      for (const depId of deps) {
-        const dep = nodesById.get(depId);
-        const hasStored = dep ? storedImagesForOutput(dep).length > 0 : false;
-        if (mode === 'selected' && hasStored && !requested.includes(depId)) continue;
-        includeWithDeps(depId);
-      }
-      planned.add(id);
-    }
-
-    for (const id of requested) includeWithDeps(id);
-
-    const plannedDependencies = new Map<string, Set<string>>();
-    for (const id of planned) {
-      plannedDependencies.set(id, new Set([...dependencies.get(id) || []].filter((depId) => planned.has(depId))));
-    }
-
-    const remaining = new Set(planned);
-    const levels: string[][] = [];
-    while (remaining.size > 0) {
-      const ready = [...remaining].filter((id) => {
-        const deps = plannedDependencies.get(id) || new Set<string>();
-        return [...deps].every((depId) => !remaining.has(depId));
-      });
-      if (ready.length === 0) throw new Error('Circular dependency detected between output nodes');
-      levels.push(ready);
-      for (const id of ready) remaining.delete(id);
-    }
-
-    return { plannedOutputNodeIds: [...planned], levels, dependencies };
   }
 
   function jobStatusPayload(job: DurableGenerationJob, active: boolean): GenerationJobStatus {
@@ -643,7 +551,7 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
       let workflow = req.body.workflow;
       const mode = req.body.mode || 'selected';
       const requestedOutputNodeIds = req.body.outputNodeIds || [];
-      const plan = planOutputRun(workflow, requestedOutputNodeIds, mode);
+      const plan = planOutputRun(workflow, requestedOutputNodeIds, mode, { outputPathFromProjectUrl });
       if (plan.plannedOutputNodeIds.length === 0) {
         res.status(400).json({ error: 'Select at least one output node to run.' });
         return;
@@ -780,19 +688,11 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
       }
 
       if (latest.status === 'running') {
-        latest.status = 'error';
-        latest.error = 'The daemon stopped before this generation completed.';
+        reconcileStoppedGenerationJob(latest);
         let project = await getProject(projectId);
         let workflow = project.workflow;
         for (const [outputNodeId, state] of Object.entries(latest.outputs)) {
-          const failedState: OutputNodeGenerationState = {
-            ...state,
-            status: state.images.length > 0 ? 'partial' : 'error',
-            error: state.images.length > 0 ? 'Daemon stopped after partial output.' : 'Daemon stopped before output was generated.',
-            updatedAt: new Date().toISOString(),
-          };
-          latest.outputs[outputNodeId] = failedState;
-          workflow = patchWorkflowOutputGeneration(workflow, outputNodeId, failedState);
+          workflow = patchWorkflowOutputGeneration(workflow, outputNodeId, state);
         }
         await saveGenerationJob(latest);
         await saveProjectWorkflow(projectId, workflow);
@@ -1183,12 +1083,12 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
     log('executor', 'discovered output nodes', { count: outputNodes.length, ids: outputNodes.map((n) => n.id) });
 
     const dependencies = dependenciesOverride || outputDependencies(workflow);
-    const levels = plannedLevels || planOutputRun(workflow, outputNodes.map((node) => node.id), 'all').levels;
+    const levels = plannedLevels || planOutputRun(workflow, outputNodes.map((node) => node.id), 'all', { outputPathFromProjectUrl }).levels;
     log('executor', 'execution levels', { levels });
 
     const results = new Map<string, GeneratedImage[]>();
     for (const node of outputNodes) {
-      const stored = storedImagesForOutput(node);
+      const stored = storedImagesForOutput(node, { outputPathFromProjectUrl });
       if (stored.length > 0) results.set(node.id, stored);
     }
     const outputResults: OutputNodeResult[] = [];
