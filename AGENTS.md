@@ -17,6 +17,7 @@ The current checkout is a Vite/React web app plus a local Express daemon. Do not
   - Dev app: `npm run dev` starts daemon on `127.0.0.1:3847` and Vite on `127.0.0.1:5173`
   - Web only: `npm run dev:web`
   - Daemon only: `npm run dev:daemon`
+  - Remote bind, only on a trusted network: `npx tsx src/cli/index.ts ui --host 0.0.0.0 --allow-remote`
   - Type check: `npm run check`
   - Tests: `npm test` runs typecheck, unit tests, WebGL browser verification, and workflow E2E verification
   - WebGL verifier only: `npm run test:webgl`
@@ -83,6 +84,7 @@ Gitignored local notes may exist. Treat them as private context only; do not quo
 - Do not reintroduce client-only polling as the source of truth for generation progress. Stream events and polling should both apply the same `GenerationJobStatus` shape.
 - `/api/projects/:projectId/output-assets` exposes generated output images as a flattened asset list. Rename/delete operations update the durable run `job.json` and `outputs/runs/index.json`; delete also removes the generated file when it is still under the project outputs root.
 - Project output file-serving supports nested `outputs/runs/...` paths and must preserve path traversal checks.
+- Mutating `/api/*` routes require the per-process `x-imagex-session` token from `/api/session`. The web app installs this automatically in `src/web/client/sessionFetch.ts`; test scripts that call the daemon directly must fetch and send the token.
 
 ## Product And UX Direction
 
@@ -125,6 +127,7 @@ When changing persistence, include schema compatibility for existing files under
 
 - Local data root is `process.env.IMAGEX_HOME || ~/.imagex`.
 - Auth is stored in `auth.json` with restrictive permissions. Never commit credentials, generated project data, `.env`, or outputs.
+- The daemon defaults to loopback hosts. Non-loopback binds require `--allow-remote` and should be treated as trusted-network only; the local session token is a CSRF guard, not remote user authentication.
 - Project assets and outputs are served through daemon routes that guard against path traversal. Preserve those checks when touching file-serving code.
 - Avoid adding telemetry or external network calls outside explicit auth/generation flows.
 - For local generation testing without real network image calls, start ImageX with `CODEX_API_BASE=http://127.0.0.1:8787/backend-api/codex/responses` only when a local mock service is intentionally running.

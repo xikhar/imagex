@@ -4,6 +4,7 @@ import { clearAuthStore, getCodexAuthStatus, resolveCodexBearerToken } from '../
 import { loginToCodex } from '../auth/codex.js';
 import { imagexPaths } from '../config/paths.js';
 import { startServer } from '../daemon/server.js';
+import { assertSafeBindHost, remoteBindWarning } from '../daemon/security.js';
 
 const program = new Command();
 
@@ -50,15 +51,19 @@ program
   .description('Start the local imagex daemon and web UI')
   .option('--host <host>', 'host to bind', '127.0.0.1')
   .option('--port <port>', 'port to bind', '3847')
+  .option('--allow-remote', 'allow binding to a non-loopback host')
   .option('--no-open', 'do not open the browser automatically')
-  .action(async (options: { host: string; port: string; open: boolean }) => {
+  .action(async (options: { host: string; port: string; allowRemote?: boolean; open: boolean }) => {
     const port = Number.parseInt(options.port, 10);
     if (!Number.isFinite(port)) throw new Error(`Invalid port: ${options.port}`);
+    assertSafeBindHost(options.host, Boolean(options.allowRemote));
 
     await startServer({ host: options.host, port });
     const url = `http://${options.host}:${port}`;
     console.log(`imagex is running at ${url}`);
     console.log(`Data directory: ${imagexPaths().root}`);
+    const warning = remoteBindWarning(options.host);
+    if (warning) console.warn(warning);
 
     if (options.open) {
       const { spawn } = await import('node:child_process');

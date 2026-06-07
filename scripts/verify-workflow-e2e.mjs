@@ -26,9 +26,13 @@ class CdpClient {
     this.socket = socket;
     this.nextId = 1;
     this.pending = new Map();
+    this.events = [];
     socket.addEventListener('message', (event) => {
       const message = JSON.parse(event.data);
-      if (!message.id) return;
+      if (!message.id) {
+        this.events.push(message);
+        return;
+      }
       const pending = this.pending.get(message.id);
       if (!pending) return;
       this.pending.delete(message.id);
@@ -57,6 +61,7 @@ const mockPort = await getFreePort();
 const debugPort = await getFreePort();
 const checks = [];
 let mockDelayMs = 250;
+let daemonSessionToken = null;
 
 const mockServer = createMockCodexServer();
 await listen(mockServer, mockPort);
@@ -118,6 +123,7 @@ try {
     const cdp = await CdpClient.connect(wsUrl);
   try {
     await cdp.call('Runtime.enable');
+    await cdp.call('Log.enable');
     await cdp.call('Page.enable');
     await cdp.call('Page.navigate', { url: targetUrl });
     await waitForExpression(cdp, `location.origin === ${JSON.stringify(`http://${host}:${webPort}`)}`, 20_000);
@@ -134,7 +140,8 @@ try {
 
     console.log(`E2E_VERIFY_PASS ${JSON.stringify({ checks: checks.length })}`);
   } catch (error) {
-    throw new Error(`${error instanceof Error ? error.message : String(error)}\n${chromeOutput.value}`);
+    const debugState = await browserDebugState(cdp).catch((debugError) => ({ debugError: String(debugError) }));
+    throw new Error(`${error instanceof Error ? error.message : String(error)}\n${JSON.stringify(debugState, null, 2)}\n${chromeOutput.value}`);
   } finally {
     cdp.close();
   }
@@ -201,7 +208,7 @@ async function verifyMenusAndWorkflowSwitching(cdp) {
 async function verifyGenerationCancelAndRecovery(cdp, targetUrl) {
   mockDelayMs = 3_000;
   await selectOutputForRun(cdp);
-  await clickElement(cdp, '.ix-split-button-main');
+  await clickRunButton(cdp);
   await waitForExpression(cdp, 'document.querySelector(".ix-split-button-main")?.textContent?.includes("Running")', 5_000);
   check('generation enters running state');
 
@@ -226,7 +233,7 @@ async function verifyGenerationCancelAndRecovery(cdp, targetUrl) {
 
 async function verifyGenerationSocketsAndConnections(cdp) {
   await selectOutputForRun(cdp);
-  await clickElement(cdp, '.ix-split-button-main');
+  await clickRunButton(cdp);
   await waitForExpression(
     cdp,
     `(async () => {
@@ -441,10 +448,15 @@ function createMockCodexServer() {
 }
 
 async function api(port, path, options = {}) {
+  const method = options.method || 'GET';
   const init = {
-    method: options.method || 'GET',
+    method,
     headers: { 'Content-Type': 'application/json' },
   };
+  if (!['GET', 'HEAD', 'OPTIONS'].includes(method.toUpperCase())) {
+    daemonSessionToken ??= (await api(port, '/api/session')).token;
+    init.headers['x-imagex-session'] = daemonSessionToken;
+  }
   if (options.body !== undefined) init.body = JSON.stringify(options.body);
   const response = await fetch(`http://${host}:${port}${path}`, init);
   if (!response.ok) throw new Error(`${init.method} ${path} failed: ${response.status} ${await response.text()}`);
@@ -462,9 +474,16 @@ async function selectOutputForRun(cdp) {
   await waitForExpression(cdp, '!document.querySelector(".ix-split-button-main")?.disabled', 5_000);
 }
 
-async function clickElement(cdp, selector) {
-  const rect = await elementRect(cdp, selector);
-  await click(cdp, rect.x + rect.width / 2, rect.y + rect.height / 2);
+async function clickRunButton(cdp) {
+  await evaluate(
+    cdp,
+    `(() => {
+      const button = document.querySelector('.ix-split-button-main');
+      if (!button || button.disabled) return false;
+      button.click();
+      return true;
+    })()`,
+  );
 }
 
 async function waitForEdge(cdp, source, sourceHandle, target, targetHandle) {
@@ -556,6 +575,25 @@ async function evaluate(cdp, expression) {
     );
   }
   return response.result?.value;
+}
+
+async function browserDebugState(cdp) {
+  const pageState = await evaluate(
+    cdp,
+    `(() => ({
+      href: location.href,
+      title: document.title,
+      bodyText: document.body?.innerText?.slice(0, 1000) || '',
+      nodeCount: document.querySelectorAll('.react-flow__node').length,
+      apiText: document.querySelector('pre')?.textContent || '',
+    }))()`,
+  );
+  return {
+    ...pageState,
+    events: cdp.events
+      .filter((event) => event.method === 'Runtime.exceptionThrown' || event.method === 'Log.entryAdded')
+      .slice(-10),
+  };
 }
 
 async function waitForExpression(cdp, expression, timeoutMs) {

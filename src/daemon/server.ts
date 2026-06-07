@@ -12,6 +12,7 @@ import { getCodexAuthStatus, resolveCodexBearerToken } from '../auth/store.js';
 import { generateCodexImages } from '../providers/codexImage.js';
 import { reconcileStoppedGenerationJob } from './generationRecovery.js';
 import { outputDependencies, planOutputRun, storedImagesForOutput } from './generationPlanner.js';
+import { createLocalSessionToken, createSessionGuard } from './security.js';
 import type {
   GenerateWorkflowRequest,
   GenerateWorkflowRunRequest,
@@ -70,12 +71,14 @@ export type StartServerOptions = {
 
 export async function startServer(options: StartServerOptions): Promise<Server> {
   const app = express();
+  const sessionToken = createLocalSessionToken();
   app.use(express.json({ limit: '25mb' }));
   app.use((req, res, next) => {
     const start = Date.now();
     res.on('finish', () => logRequest(req, res, start));
     next();
   });
+  app.use(createSessionGuard(sessionToken));
 
   // ─── Active generation job tracking ─────────────────────────────────────────
   type DurableGenerationJob = {
@@ -324,6 +327,11 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
 
   app.get('/api/health', (_req, res) => {
     res.json({ ok: true, name: 'imagex' });
+  });
+
+  app.get('/api/session', (_req, res) => {
+    res.setHeader('Cache-Control', 'no-store');
+    res.json({ token: sessionToken });
   });
 
   app.get('/api/auth/status', async (_req, res, next) => {
@@ -751,7 +759,7 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
               dataUrl: `data:${mimeType};base64,${file.toString('base64')}`,
             });
           } catch {
-            log('resolver', 'failed to read output file', { ref: ref.name, path: outputPath });
+          log('resolver', 'failed to read output file', { ref: ref.name });
           }
           continue;
         }
@@ -772,7 +780,7 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
             dataUrl: `data:${mimeType};base64,${file.toString('base64')}`,
           });
         } catch {
-          log('resolver', 'failed to read asset file', { assetId, path: assetPath });
+          log('resolver', 'failed to read asset file', { assetId });
         }
         continue;
       }
@@ -1027,7 +1035,7 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
       file = decodeURIComponent(String(req.params[1] || ''));
       const outputsRoot = resolve(projectOutputDir(projectId));
       const target = resolve(outputsRoot, file);
-      log('outputs', 'serving file', { projectId, file, target, outputsRoot });
+      log('outputs', 'serving file', { projectId, file });
       if (relative(outputsRoot, target).startsWith('..')) {
         res.status(403).end();
         return;
@@ -1154,7 +1162,7 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
         },
         signal
       );
-      log('executor', 'images generated', { outputNodeId, count: images.length, urls: images.map((i) => i.url) });
+      log('executor', 'images generated', { outputNodeId, count: images.length });
 
       results.set(outputNodeId, images);
       if (job) {
