@@ -14,6 +14,7 @@ export type UiNodeData = {
   onActivateCustomField?: (nodeId: string, fieldId: string) => void;
   onOpenAssetPicker?: (nodeId: string, fieldId: string) => void;
   isDropTargetFrame?: boolean;
+  hasSelectedFrameMember?: boolean;
   connectedTargetHandles: string[];
 };
 

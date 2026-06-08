@@ -41,6 +41,7 @@ import {
 } from '../../flow/nodes/ImageXNode.js';
 import { graphEngine } from '../../../state/graphEngine.js';
 import { refreshPreviewSurfaces } from '../../flow/imaging/index.js';
+import { moveFrameWithMembers, refreshFrameSelectionState } from '../../graph/operations.js';
 
 const nodeTypes = {
   prompt: PromptNode,
@@ -65,7 +66,6 @@ export function FlowEditor({
   onPaneMenu,
   onSelectionMenu,
   onSelectionChangeIds,
-  onFrameDrag,
   onNodeDragHoverFrame,
   onNodeDragStopCheckFrames,
   onPaneClickClear,
@@ -82,7 +82,6 @@ export function FlowEditor({
   onPaneMenu: (position: { x: number; y: number }, flowPosition: { x: number; y: number }) => void;
   onSelectionMenu: (position: { x: number; y: number }) => void;
   onSelectionChangeIds: (nodeIds: string[], edgeIds: string[]) => void;
-  onFrameDrag: (frameId: string, delta: { x: number; y: number }) => void;
   onNodeDragHoverFrame: (nodeId: string, position: { x: number; y: number }) => void;
   onNodeDragStopCheckFrames: (nodeId: string) => void;
   onPaneClickClear: () => void;
@@ -146,7 +145,7 @@ export function FlowEditor({
     (changes: NodeChange<UiNode>[]) => {
       if (changes.length === 0) return;
       const current = flowStore.getNodes();
-      const next = applyNodeChanges(changes, current);
+      const next = refreshFrameSelectionState(applyNodeChanges(changes, current));
       const transient = changes.every((change) => change.type === 'position' && change.dragging);
       const graphChanged = changes.some((change) => change.type === 'add' || change.type === 'remove' || change.type === 'replace');
       flowStore.setNodes(next, { transient, graph: graphChanged });
@@ -251,9 +250,10 @@ export function FlowEditor({
     }
     if (!active || node.id !== active.id) return;
     const delta = { x: node.position.x - active.position.x, y: node.position.y - active.position.y };
-    if (delta.x || delta.y) onFrameDrag(node.id, delta);
+    const moved = moveFrameWithMembers(flowStore.getNodes(), node.id, node.position, delta);
+    if (moved.changed) flowStore.setNodes(moved.nodes, { transient: true, graph: false });
     frameDragRef.current = { id: node.id, position: node.position };
-  }, [hasFrames, onFrameDrag, onNodeDragHoverFrame]);
+  }, [hasFrames, onNodeDragHoverFrame]);
   const handleNodeDragStop = useCallback<OnNodeDrag<UiNode>>((_, node, draggedNodes) => {
     // Persist final positions to the durable flow store after transient live drag updates.
     const finalPositions = new Map(draggedNodes.map((draggedNode) => [draggedNode.id, draggedNode.position]));

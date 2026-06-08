@@ -467,7 +467,6 @@ export function App() {
           onPaneMenu={(position, flowPosition) => setMenu({ type: 'pane', x: position.x, y: position.y, flowX: flowPosition.x, flowY: flowPosition.y })}
           onSelectionMenu={(position) => setMenu({ type: 'selection', x: position.x, y: position.y })}
           onSelectionChangeIds={editor.handleSelectionChange}
-          onFrameDrag={editor.moveFrameContents}
           onNodeDragHoverFrame={editor.handleNodeDragFrameState}
           onNodeDragStopCheckFrames={editor.expandFramesForNode}
           onPaneClickClear={editor.clearSelection}

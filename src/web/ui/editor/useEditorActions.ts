@@ -31,8 +31,8 @@ import {
   expandSelectionWithFrameMembers,
   frameMembers,
   hoveredFrameForNodeCenter,
-  moveFrameMembers,
   refreshConnectedTargetHandles,
+  refreshFrameSelectionState,
   removeFrameOnly as removeFrameOnlyFromWorkflow,
   selectedEdgeIds as graphSelectedEdgeIds,
   selectedNodeIds as graphSelectedNodeIds,
@@ -328,10 +328,10 @@ export function useEditorActions(deps: EditorActionsDeps) {
       activateCustomField,
       openAssetPickerForField
     );
-    const nextNodes = refreshConnectedTargetHandles(
+    const nextNodes = refreshFrameSelectionState(refreshConnectedTargetHandles(
       flow.nodes.map((node) => ({ ...node, selected: node.id === nextSelectedId })),
       flow.edges
-    );
+    ));
     workflowRef.current = nextWorkflow;
     nodesRef.current = nextNodes;
     edgesRef.current = flow.edges;
@@ -574,7 +574,7 @@ export function useEditorActions(deps: EditorActionsDeps) {
   function openNodeMenu(nodeId: string, position: { x: number; y: number }) {
     selectedIdRef.current = nodeId;
     setSelectedId(nodeId);
-    const nextNodes = nodesRef.current.map((node) => ({ ...node, selected: node.id === nodeId }));
+    const nextNodes = refreshFrameSelectionState(nodesRef.current.map((node) => ({ ...node, selected: node.id === nodeId })));
     nodesRef.current = nextNodes;
     setNodes(nextNodes);
     deps.onNodeMenu(nodeId, position);
@@ -587,7 +587,7 @@ export function useEditorActions(deps: EditorActionsDeps) {
     setSelectedId(nodeIds.length === 1 ? nodeIds[0]! : null);
     const nodeSet = new Set(nodeIds);
     const edgeSet = new Set(edgeIds);
-    const nextNodes = nodesRef.current.map((node) => ({ ...node, selected: nodeSet.has(node.id) }));
+    const nextNodes = refreshFrameSelectionState(nodesRef.current.map((node) => ({ ...node, selected: nodeSet.has(node.id) })));
     const nextEdges = edgesRef.current.map((edge) => ({ ...edge, selected: edgeSet.has(edge.id) }));
     nodesRef.current = nextNodes;
     edgesRef.current = nextEdges;
@@ -608,7 +608,7 @@ export function useEditorActions(deps: EditorActionsDeps) {
   function clearSelection() {
     setSelectedId(null);
     selectedIdRef.current = null;
-    const nextNodes = nodesRef.current.map((node) => ({ ...node, selected: false }));
+    const nextNodes = refreshFrameSelectionState(nodesRef.current.map((node) => ({ ...node, selected: false })));
     const nextEdges = edgesRef.current.map((edge) => ({ ...edge, selected: false }));
     nodesRef.current = nextNodes;
     edgesRef.current = nextEdges;
@@ -855,7 +855,7 @@ export function useEditorActions(deps: EditorActionsDeps) {
     applyWorkflow(duplicated.workflow);
     const copyIds = new Set(duplicated.copyIds);
     setNodes((current) => {
-      const next = current.map((node) => ({ ...node, selected: copyIds.has(node.id) }));
+      const next = refreshFrameSelectionState(current.map((node) => ({ ...node, selected: copyIds.has(node.id) })));
       nodesRef.current = next;
       return next;
     });
@@ -869,12 +869,6 @@ export function useEditorActions(deps: EditorActionsDeps) {
   }
 
   // ─── Frame operations ──────────────────────────────────────────────────────
-
-  function moveFrameContents(frameId: string, delta: { x: number; y: number }) {
-    const moved = moveFrameMembers(nodesRef.current, frameId, delta);
-    if (!moved.changed) return;
-    updateFlowNodes(moved.nodes);
-  }
 
   function expandFramesForNode(nodeId: string) {
     if (frameWrapRafRef.current) {
@@ -1172,7 +1166,6 @@ export function useEditorActions(deps: EditorActionsDeps) {
     showCompiledPrompt,
     updateFlowNodes,
     updateFlowEdges,
-    moveFrameContents,
     handleNodeDragFrameState,
     expandFramesForNode,
     handleSelectionChange,

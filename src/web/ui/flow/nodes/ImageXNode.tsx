@@ -90,9 +90,10 @@ function PrimitiveNode({
   };
 
   if (frame) {
+    const frameActive = selected || Boolean(data.hasSelectedFrameMember);
     return (
       <article
-        className={`ix-node ix-node-frame ${selected ? 'selected' : ''} ${data.isDropTargetFrame ? 'drop-target' : ''}`}
+        className={`ix-node ix-node-frame ${selected ? 'selected' : ''} ${frameActive ? 'contains-selection' : ''} ${data.isDropTargetFrame ? 'drop-target' : ''}`}
         style={{ '--node-accent': meta.accent, width: '100%', height: '100%' } as CSSProperties}
         onContextMenu={onMenu}
       >

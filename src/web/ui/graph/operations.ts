@@ -3,6 +3,8 @@ import type { UiEdge, UiNode } from '../flow/types.js';
 import { containsPoint, nodeRect } from './geometry.js';
 
 const FRAME_PADDING = 24;
+const FRAME_HEADER_HEIGHT = 44;
+const FRAME_HEADER_GAP = 20;
 
 export type GraphMutation<T = undefined> = {
   nodes: UiNode[];
@@ -47,6 +49,30 @@ export function refreshConnectedTargetHandles(nodes: UiNode[], edges: UiEdge[]):
       connectedTargetHandles: targetHandlesByNode.get(node.id) ?? [],
     },
   }));
+}
+
+export function refreshFrameSelectionState(nodes: UiNode[]): UiNode[] {
+  const selectedFrameIds = new Set(
+    nodes
+      .filter((node) => node.selected && node.type !== 'frame')
+      .map((node) => node.data.workflowNode.data.frameId)
+      .filter((frameId): frameId is string => typeof frameId === 'string')
+  );
+  let changed = false;
+  const nextNodes = nodes.map((node) => {
+    if (node.type !== 'frame') return node;
+    const hasSelectedFrameMember = selectedFrameIds.has(node.id);
+    if (Boolean(node.data.hasSelectedFrameMember) === hasSelectedFrameMember) return node;
+    changed = true;
+    return {
+      ...node,
+      data: {
+        ...node.data,
+        hasSelectedFrameMember,
+      },
+    };
+  });
+  return changed ? nextNodes : nodes;
 }
 
 export function updateNodeWorkflowData(nodes: UiNode[], nodeId: string, patch: Record<string, unknown>): GraphMutation {
@@ -97,6 +123,31 @@ export function moveFrameMembers(nodes: UiNode[], frameId: string, delta: { x: n
       };
     }),
   };
+}
+
+export function moveFrameWithMembers(
+  nodes: UiNode[],
+  frameId: string,
+  framePosition: { x: number; y: number },
+  delta: { x: number; y: number }
+): GraphMutation {
+  const memberIds = new Set(frameMembers(frameId, nodes).filter((node) => !node.selected).map((node) => node.id));
+  let changed = false;
+  const nextNodes = nodes.map((node) => {
+    if (node.id === frameId) {
+      if (node.position.x === framePosition.x && node.position.y === framePosition.y) return node;
+      changed = true;
+      return { ...node, position: framePosition };
+    }
+    if (!memberIds.has(node.id)) return node;
+    if (!delta.x && !delta.y) return node;
+    changed = true;
+    return {
+      ...node,
+      position: { x: node.position.x + delta.x, y: node.position.y + delta.y },
+    };
+  });
+  return { nodes: changed ? nextNodes : nodes, changed };
 }
 
 export function attachNodeToFrameAtCenter(nodes: UiNode[], nodeId: string): GraphMutation<{ frameId: string | null }> {
@@ -203,10 +254,10 @@ function boundsForNodes(nodes: UiNode[], padding: number): { x: number; y: numbe
   if (nodes.length === 0) return null;
   const rects = nodes.map((node) => nodeRect(node));
   const left = Math.min(...rects.map((rect) => rect.left)) - padding;
-  const top = Math.min(...rects.map((rect) => rect.top)) - padding;
+  const top = Math.min(...rects.map((rect) => rect.top)) - frameTopPadding();
   const right = Math.max(...rects.map((rect) => rect.right)) + padding;
   const bottom = Math.max(...rects.map((rect) => rect.bottom)) + padding;
-  return { x: left, y: top, width: Math.max(260, right - left), height: Math.max(120, bottom - top) };
+  return { x: left, y: top, width: Math.max(260, right - left), height: Math.max(frameMinHeight(), bottom - top) };
 }
 
 function frameWithBounds(node: UiNode, bounds: { x: number; y: number; width: number; height: number }): UiNode {
@@ -356,10 +407,18 @@ function workflowBoundsForNodes(nodes: ImageXNode[], padding: number): { x: numb
   if (nodes.length === 0) return null;
   const rects = nodes.map((node) => workflowNodeRect(node));
   const left = Math.min(...rects.map((rect) => rect.left)) - padding;
-  const top = Math.min(...rects.map((rect) => rect.top)) - padding;
+  const top = Math.min(...rects.map((rect) => rect.top)) - frameTopPadding();
   const right = Math.max(...rects.map((rect) => rect.right)) + padding;
   const bottom = Math.max(...rects.map((rect) => rect.bottom)) + padding;
-  return { x: left, y: top, width: Math.max(260, right - left), height: Math.max(120, bottom - top) };
+  return { x: left, y: top, width: Math.max(260, right - left), height: Math.max(frameMinHeight(), bottom - top) };
+}
+
+function frameTopPadding(): number {
+  return FRAME_HEADER_HEIGHT + FRAME_HEADER_GAP;
+}
+
+function frameMinHeight(): number {
+  return FRAME_HEADER_HEIGHT + FRAME_HEADER_GAP + FRAME_PADDING;
 }
 
 function workflowNodeRect(node: ImageXNode): { left: number; top: number; right: number; bottom: number } {
