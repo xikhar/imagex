@@ -62,6 +62,7 @@ const debugPort = await getFreePort();
 const checks = [];
 let mockDelayMs = 250;
 let daemonSessionToken = null;
+let mockFailure = false;
 
 const mockServer = createMockCodexServer();
 await listen(mockServer, mockPort);
@@ -135,6 +136,7 @@ try {
     await verifyGenerationCancelAndRecovery(cdp, targetUrl);
     mockDelayMs = 50;
     await verifyGenerationSocketsAndConnections(cdp);
+    await verifyProviderFailureState(cdp);
     await verifyCanvasGestures(cdp);
     await verifyMenusAndWorkflowSwitching(cdp);
 
@@ -232,6 +234,7 @@ async function verifyGenerationCancelAndRecovery(cdp, targetUrl) {
 }
 
 async function verifyGenerationSocketsAndConnections(cdp) {
+  mockFailure = false;
   await selectOutputForRun(cdp);
   await clickRunButton(cdp);
   await waitForExpression(
@@ -318,6 +321,25 @@ async function verifyGenerationSocketsAndConnections(cdp) {
     10_000,
   );
   check('dynamic output socket edges can be replaced and reused');
+}
+
+async function verifyProviderFailureState(cdp) {
+  mockFailure = true;
+  await selectOutputForRun(cdp);
+  await clickRunButton(cdp);
+  await waitForExpression(
+    cdp,
+    `(async () => {
+      const { flowStore } = await import('/state/flowStore.ts');
+      const node = flowStore.getNode('output-main')?.data.workflowNode;
+      return node?.data.generating === false &&
+        node?.data.generation?.status === 'error' &&
+        String(node?.data.generation?.error || '').includes('E2E provider failure');
+    })()`,
+    20_000,
+  );
+  check('provider failure clears generating state with node-level error');
+  mockFailure = false;
 }
 
 async function seedAuth(home) {
@@ -433,6 +455,15 @@ function createMockCodexServer() {
     setTimeout(() => {
       res.statusCode = 200;
       res.setHeader('Content-Type', 'text/event-stream; charset=utf-8');
+      if (mockFailure) {
+        res.end(
+          `data: ${JSON.stringify({
+            type: 'response.failed',
+            error: { message: 'E2E provider failure' },
+          })}\n\ndata: [DONE]\n\n`,
+        );
+        return;
+      }
       res.end(
         `data: ${JSON.stringify({
           type: 'response.output_item.done',

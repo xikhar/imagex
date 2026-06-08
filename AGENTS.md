@@ -65,6 +65,7 @@ Gitignored local notes may exist. Treat them as private context only; do not quo
 - Each `codex-output` node corresponds to one generation target. Output dependencies must run in topological order, independent topo levels may run in parallel, circular output dependencies must be detected, and generated images remain individually addressable through `result-out` / `result-out:<index>` handles.
 - Dynamic output image handles must not leave orphaned edges when previews are cleared or regenerated. Duplicated output nodes may keep their previous preview, but connecting or reconnecting a new input into an output node must clear stale output generation state.
 - The asset library has three asset classes: imported image assets, reusable node assets, and generated output assets flattened from durable run history. Deleting or renaming image/output assets must reconcile any current workflow nodes that reference their `assetId` or `assetUrl`.
+- Asset rename/delete workflow cleanup lives in `src/web/ui/editor/assetReconciliation.ts`. Keep generated-output image deletion, dynamic handle shifting, imported asset cleanup, and generation status updates covered by unit tests.
 - Node assets are reusable workflow snippets with `schemaVersion: 1`. The root must be a non-frame node; frames may be included only as containers. Save and insert paths must strip transient UI state, output generation state, stale generated-output references, and non-internal edges while preserving relative node positions and valid imported asset references.
 
 ## Generation Architecture
@@ -82,6 +83,7 @@ Gitignored local notes may exist. Treat them as private context only; do not quo
 - `/api/projects/:projectId/generate-status` is the recovery source of truth after refresh or daemon restart. If a persisted job is still marked running but no active in-memory job exists, reconcile complete saved outputs to `done`, partial saved outputs to `partial`, and empty outputs to `error`.
 - `/api/projects/:projectId/generate/cancel` aborts the active provider requests and persists partial output state. UI cancel controls should call this endpoint before clearing local state.
 - Do not reintroduce client-only polling as the source of truth for generation progress. Stream events and polling should both apply the same `GenerationJobStatus` shape.
+- Generation stream error events must include the final job status so the UI clears `generating` and shows node-level errors after provider failures.
 - `/api/projects/:projectId/output-assets` exposes generated output images as a flattened asset list. Rename/delete operations update the durable run `job.json` and `outputs/runs/index.json`; delete also removes the generated file when it is still under the project outputs root.
 - Project output file-serving supports nested `outputs/runs/...` paths and must preserve path traversal checks.
 - Mutating `/api/*` routes require the per-process `x-imagex-session` token from `/api/session`. The web app installs this automatically in `src/web/client/sessionFetch.ts`; test scripts that call the daemon directly must fetch and send the token.

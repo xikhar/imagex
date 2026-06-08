@@ -1,7 +1,6 @@
 import { useState } from 'react';
 import type {
   GenerationJobStatus,
-  OutputNodeGenerationState,
   ImageXAsset,
   ImageXEdge,
   ImageXNode,
@@ -18,6 +17,13 @@ import { nodeMeta } from '../flow/meta.js';
 import type { UiEdge, UiNode } from '../flow/types.js';
 import { fileToBase64 } from '../utils/files.js';
 import { pushProjectRoute } from '../utils/routing.js';
+import { outputNodePatchesFromGenerationStatus } from './generationStatus.js';
+import {
+  reflectRenamedImageAssetInWorkflow,
+  reflectRenamedOutputAssetInWorkflow,
+  scrubDeletedImageAssetFromWorkflow,
+  scrubDeletedOutputAssetFromWorkflow,
+} from './assetReconciliation.js';
 import type { ConfirmDialogState, TextDialogState } from './types.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
@@ -132,16 +138,7 @@ export function useProjectActions(deps: ProjectActionsDeps) {
   }
 
   function applyGenerationStatus(data: GenerationJobStatus) {
-    const patches = new Map<string, Record<string, unknown>>();
-    for (const [nodeId, state] of Object.entries(data.outputs || {})) {
-      patches.set(nodeId, {
-        previewUrl: state.images[0]?.url || '',
-        previewUrls: state.images.map((image) => image.url),
-        previewIndex: 0,
-        generating: state.status === 'queued' || state.status === 'running',
-        generation: state,
-      });
-    }
+    const patches = outputNodePatchesFromGenerationStatus(data);
     if (patches.size > 0) patchOutputNodes(patches);
     if (data.results?.length) {
       setOutputResults(new Map(data.results.map((result) => [result.outputNodeId, result])));
@@ -547,111 +544,37 @@ export function useProjectActions(deps: ProjectActionsDeps) {
   function scrubDeletedImageAsset(asset: ImageXAsset) {
     const current = syncLatestWorkflow();
     if (!current) return;
-    let changed = false;
-    const nodes = current.nodes.map((node) => {
-      const usesAsset = node.data.assetId === asset.id || node.data.assetUrl === asset.url;
-      if (!usesAsset) return node;
-      changed = true;
-      const nextData = { ...node.data };
-      delete nextData.assetId;
-      delete nextData.assetUrl;
-      delete nextData.assetName;
-      for (const [key, value] of Object.entries(nextData)) {
-        if (value === asset.file || value === asset.name || value === asset.url) nextData[key] = '';
-      }
-      return { ...node, data: nextData };
-    });
-    if (!changed) return;
+    const next = scrubDeletedImageAssetFromWorkflow(current, asset);
+    if (next === current) return;
     recordHistory();
-    applyWorkflow({ ...current, nodes, updatedAt: new Date().toISOString() });
+    applyWorkflow(next);
   }
 
   function reflectRenamedAsset(asset: ImageXAsset) {
     const current = syncLatestWorkflow();
     if (!current) return;
-    let changed = false;
-    const nodes = current.nodes.map((node) => {
-      if (node.data.assetId !== asset.id && node.data.assetUrl !== asset.url) return node;
-      changed = true;
-      return { ...node, data: { ...node.data, assetName: asset.name } };
-    });
-    if (!changed) return;
+    const next = reflectRenamedImageAssetInWorkflow(current, asset);
+    if (next === current) return;
     recordHistory();
-    applyWorkflow({ ...current, nodes, updatedAt: new Date().toISOString() });
+    applyWorkflow(next);
   }
 
   function reflectRenamedOutputAsset(asset: ImageXOutputAsset) {
     const current = syncLatestWorkflow();
     if (!current) return;
-    let changed = false;
-    const nodes = current.nodes.map((node) => {
-      if (node.data.assetId !== asset.id && node.data.assetUrl !== asset.url) return node;
-      changed = true;
-      return { ...node, data: { ...node.data, assetName: asset.name } };
-    });
-    if (!changed) return;
+    const next = reflectRenamedOutputAssetInWorkflow(current, asset);
+    if (next === current) return;
     recordHistory();
-    applyWorkflow({ ...current, nodes, updatedAt: new Date().toISOString() });
+    applyWorkflow(next);
   }
 
   function scrubDeletedOutputAsset(asset: ImageXOutputAsset) {
     const current = syncLatestWorkflow();
     if (!current) return;
-    let changed = false;
-    const sourceNode = current.nodes.find((node) => node.id === asset.outputNodeId);
-    const sourceUrls = Array.isArray(sourceNode?.data.previewUrls) ? sourceNode.data.previewUrls : [];
-    const currentImageIndex = sourceUrls.findIndex((url) => url === asset.url);
-    const deletedImageIndex = currentImageIndex >= 0 ? currentImageIndex : asset.imageIndex;
-    const nodes = current.nodes.map((node) => {
-      const data = node.data;
-      if (node.id === asset.outputNodeId) {
-        const previewUrls = Array.isArray(data.previewUrls) ? data.previewUrls.filter((url) => url !== asset.url) : [];
-        const generation = generationWithDeletedUrl(data.generation, asset.url);
-        changed = changed || previewUrls.length !== (Array.isArray(data.previewUrls) ? data.previewUrls.length : 0) || generation !== data.generation;
-        return {
-          ...node,
-          data: {
-            ...data,
-            previewUrl: previewUrls[0] || '',
-            previewUrls,
-            previewIndex: Math.min(Number(data.previewIndex) || 0, Math.max(0, previewUrls.length - 1)),
-            ...(generation ? { generation } : {}),
-          },
-        };
-      }
-
-      if (data.assetUrl === asset.url) {
-        changed = true;
-        const nextData = { ...data };
-        delete nextData.assetId;
-        delete nextData.assetUrl;
-        delete nextData.assetName;
-        for (const [key, value] of Object.entries(nextData)) {
-          if (value === asset.url || value === asset.name) nextData[key] = '';
-        }
-        return { ...node, data: nextData };
-      }
-
-      return node;
-    });
-
-    const edges = current.edges.flatMap((edge) => {
-      if (edge.source !== asset.outputNodeId) return [edge];
-      const sourceIndex = outputIndexFromHandle(edge.sourceHandle);
-      if (sourceIndex === deletedImageIndex) {
-        changed = true;
-        return [];
-      }
-      if (sourceIndex > deletedImageIndex) {
-        changed = true;
-        return [{ ...edge, sourceHandle: outputHandleForIndex(sourceIndex - 1), id: `${edge.source}-${outputHandleForIndex(sourceIndex - 1)}-${edge.target}-${edge.targetHandle || 'in'}` }];
-      }
-      return [edge];
-    });
-
-    if (!changed) return;
+    const next = scrubDeletedOutputAssetFromWorkflow(current, asset);
+    if (next === current) return;
     recordHistory();
-    applyWorkflow({ ...current, nodes, edges, updatedAt: new Date().toISOString() });
+    applyWorkflow(next);
   }
 
   // ─── Node assets ───────────────────────────────────────────────────────────
@@ -730,30 +653,4 @@ export function useProjectActions(deps: ProjectActionsDeps) {
     openCreateNodeAssetDialog,
     createNodeAssetFromNode,
   };
-}
-
-function generationWithDeletedUrl(value: unknown, url: string): OutputNodeGenerationState | undefined {
-  if (!value || typeof value !== 'object') return undefined;
-  const generation = value as OutputNodeGenerationState;
-  if (!Array.isArray(generation.images)) return undefined;
-  const images = generation.images.filter((image) => image.url !== url);
-  if (images.length === generation.images.length) return generation;
-  return {
-    ...generation,
-    images,
-    status: images.length ? generation.status : 'cancelled',
-    updatedAt: new Date().toISOString(),
-  };
-}
-
-function outputIndexFromHandle(handleId: string | undefined): number {
-  if (!handleId || handleId === 'result-out') return 0;
-  const match = handleId.match(/^result-out:(\d+)$/);
-  if (!match) return 0;
-  const index = Number(match[1]);
-  return Number.isInteger(index) && index >= 0 ? index : 0;
-}
-
-function outputHandleForIndex(index: number): string {
-  return index <= 0 ? 'result-out' : `result-out:${index}`;
 }

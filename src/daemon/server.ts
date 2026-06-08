@@ -640,7 +640,12 @@ export async function startServer(options: StartServerOptions): Promise<Server> 
       }
       log('generate', 'workflow generation failed', { projectId, error: String(error) });
       if (res.headersSent) {
-        res.write(`data: ${JSON.stringify({ type: 'error', error: String(error) })}\n\n`);
+        const errorEvent: { type: 'error'; error: string; job?: GenerationJobStatus } = {
+          type: 'error',
+          error: String(error),
+        };
+        if (active) errorEvent.job = jobStatusPayload(active.job, false);
+        res.write(`data: ${JSON.stringify(errorEvent)}\n\n`);
         res.end();
       } else {
         next(error);
