@@ -89,10 +89,20 @@ export function syncFlowToWorkflow(workflow: ImageXWorkflow, nodes: UiNode[], ed
     nodes: workflowNodes.map((workflowNode) => {
       const flowNode = nodes.find((node) => node.id === workflowNode.id);
       const data = flowNode ? { ...flowNode.data.workflowNode.data } : workflowNode.data;
-      if (flowNode?.type === 'frame') {
+      if (flowNode) {
         const style = flowNode.style as { width?: number | string; height?: number | string } | undefined;
-        data.width = numericDimension(flowNode.width) ?? numericDimension(style?.width) ?? numericDimension(data.width) ?? 520;
-        data.height = numericDimension(flowNode.height) ?? numericDimension(style?.height) ?? numericDimension(data.height) ?? 360;
+        data.width =
+          numericDimension(flowNode.measured?.width) ??
+          numericDimension(flowNode.width) ??
+          numericDimension(style?.width) ??
+          numericDimension(data.width) ??
+          (flowNode.type === 'frame' ? 520 : undefined);
+        data.height =
+          numericDimension(flowNode.measured?.height) ??
+          numericDimension(flowNode.height) ??
+          numericDimension(style?.height) ??
+          numericDimension(data.height) ??
+          (flowNode.type === 'frame' ? 360 : undefined);
       }
       return flowNode
         ? {

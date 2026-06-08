@@ -48,6 +48,13 @@ export const editorShortcuts = [
     description: 'Detach selected node from its frame',
   },
   {
+    id: 'add-to-frame',
+    scope: 'editor',
+    key: 'f',
+    label: 'F',
+    description: 'Add selected nodes to a frame',
+  },
+  {
     id: 'undo',
     scope: 'editor',
     key: 'z',

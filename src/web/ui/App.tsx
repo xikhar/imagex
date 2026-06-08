@@ -145,6 +145,7 @@ export function App() {
     'delete-selection': editor.deleteSelection,
     'clear-selection': editor.clearSelection,
     'detach-frame': editor.detachSelectionFromFrames,
+    'add-to-frame': editor.addSelectionToFrame,
     'duplicate-field': editor.duplicateActiveCustomField,
     undo: editor.undo,
     redo: editor.redo,
@@ -280,6 +281,7 @@ export function App() {
       if (action === 'disconnect') editor.disconnectNode(menuState.nodeId);
       if (action === 'remove-frame') editor.removeFrameOnly(menuState.nodeId);
       if (action === 'detach-frame') detachNodeFromFrame(menuState.nodeId);
+      if (action === 'add-to-frame') editor.addSelectionToFrame();
       return;
     }
     if (menuState.type === 'selection') {
@@ -288,6 +290,7 @@ export function App() {
       if (action === 'delete') editor.deleteSelection();
       if (action === 'disconnect') editor.disconnectSelection();
       if (action === 'detach-frame') editor.detachSelectionFromFrames();
+      if (action === 'add-to-frame') editor.addSelectionToFrame();
       return;
     }
     if (menuState.type === 'pane') {
@@ -467,7 +470,6 @@ export function App() {
           onPaneMenu={(position, flowPosition) => setMenu({ type: 'pane', x: position.x, y: position.y, flowX: flowPosition.x, flowY: flowPosition.y })}
           onSelectionMenu={(position) => setMenu({ type: 'selection', x: position.x, y: position.y })}
           onSelectionChangeIds={editor.handleSelectionChange}
-          onNodeDragHoverFrame={editor.handleNodeDragFrameState}
           onNodeDragStopCheckFrames={editor.expandFramesForNode}
           onPaneClickClear={editor.clearSelection}
           onCommitFlow={() => editor.commitFlowToWorkflow()}
@@ -748,6 +750,7 @@ function FloatingContextMenu({
                 {
                   items: [
                     { action: 'duplicate', label: 'Duplicate' },
+                    ...(isFrame ? [] : [{ action: 'add-to-frame', label: 'Add to frame' } as MenuAction]),
                     ...(isFrame ? [] : [{ action: 'create-asset', label: 'Create node asset' } as MenuAction]),
                     ...(canDetach ? [{ action: 'detach-frame', label: 'Detach from frame' } as MenuAction] : []),
                   ],

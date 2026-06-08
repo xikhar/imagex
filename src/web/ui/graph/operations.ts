@@ -1,6 +1,6 @@
 import type { ImageXEdge, ImageXNode, ImageXWorkflow } from '../../../shared/types.js';
 import type { UiEdge, UiNode } from '../flow/types.js';
-import { containsPoint, nodeRect } from './geometry.js';
+import { containsPoint, intersectionArea, nodeRect } from './geometry.js';
 
 const FRAME_PADDING = 24;
 const FRAME_HEADER_HEIGHT = 44;
@@ -159,10 +159,7 @@ export function attachNodeToFrameAtCenter(nodes: UiNode[], nodeId: string): Grap
     x: draggedBounds.left + draggedBounds.width / 2,
     y: draggedBounds.top + draggedBounds.height / 2,
   };
-  const targetFrame = nodes
-    .filter((node) => node.type === 'frame')
-    .filter((frame) => containsPoint(nodeRect(frame), center))
-    .sort((left, right) => rectArea(nodeRect(left)) - rectArea(nodeRect(right)))[0];
+  const targetFrame = targetFrameForDraggedNode(nodes, draggedBounds, center);
   const targetFrameId = targetFrame?.id;
   const previousFrameId = typeof dragged.data.workflowNode.data.frameId === 'string' ? dragged.data.workflowNode.data.frameId : undefined;
   if (!targetFrameId) return { nodes, changed: false, value: { frameId: null } };
@@ -175,7 +172,22 @@ export function attachNodeToFrameAtCenter(nodes: UiNode[], nodeId: string): Grap
     return withWorkflowData(node, data);
   });
 
-  return wrapFramesAroundMembers(nextNodes, new Set([targetFrameId, previousFrameId].filter(Boolean) as string[]), { frameId: targetFrameId });
+  const wrapped = wrapFramesAroundMembers(nextNodes, new Set([targetFrameId, previousFrameId].filter(Boolean) as string[]), { frameId: targetFrameId });
+  return { ...wrapped, nodes: wrapped.changed ? wrapped.nodes : nextNodes, changed: true };
+}
+
+function targetFrameForDraggedNode(nodes: UiNode[], draggedBounds: ReturnType<typeof nodeRect>, center: { x: number; y: number }): UiNode | undefined {
+  const frames = nodes.filter((candidate) => candidate.type === 'frame');
+  const centerFrame = frames
+    .filter((frame) => containsPoint(nodeRect(frame), center))
+    .sort((left, right) => rectArea(nodeRect(left)) - rectArea(nodeRect(right)))[0];
+  if (centerFrame) return centerFrame;
+
+  const draggedArea = Math.max(1, rectArea(draggedBounds));
+  return frames
+    .map((frame) => ({ frame, overlapRatio: intersectionArea(draggedBounds, nodeRect(frame)) / draggedArea }))
+    .filter((entry) => entry.overlapRatio >= 0.45)
+    .sort((left, right) => right.overlapRatio - left.overlapRatio || rectArea(nodeRect(left.frame)) - rectArea(nodeRect(right.frame)))[0]?.frame;
 }
 
 export function detachNodesFromFrames(nodes: UiNode[], nodeIds: Set<string>): GraphMutation {
@@ -283,7 +295,7 @@ function frameWithBounds(node: UiNode, bounds: { x: number; y: number; width: nu
 }
 
 function rectArea(rect: { width: number; height: number }): number {
-  return rect.width * rect.height;
+  return Math.max(0, rect.width) * Math.max(0, rect.height);
 }
 
 export function deleteNodes(workflow: ImageXWorkflow, nodeIds: Set<string>, edgeIds = new Set<string>()): ImageXWorkflow {
@@ -321,6 +333,66 @@ export function removeFrameOnly(workflow: ImageXWorkflow, frameId: string): Imag
   };
 }
 
+export function addSelectionToFrame(workflow: ImageXWorkflow, nodeIds: Set<string>): ImageXWorkflow {
+  const selectedNodes = workflow.nodes.filter((node) => nodeIds.has(node.id));
+  const selectedNonFrameIds = new Set(selectedNodes.filter((node) => node.type !== 'frame').map((node) => node.id));
+  const selectedFrameIds = selectedNodes.filter((node) => node.type === 'frame').map((node) => node.id);
+  const sourceFrameIds = new Set<string>(selectedFrameIds);
+  for (const node of selectedNodes) {
+    if (node.type === 'frame') continue;
+    if (typeof node.data.frameId === 'string') sourceFrameIds.add(node.data.frameId);
+  }
+
+  if (sourceFrameIds.size === 0) {
+    if (selectedNonFrameIds.size === 0) return workflow;
+    const frameId = `frame-${crypto.randomUUID().slice(0, 8)}`;
+    const frame: ImageXNode = {
+      id: frameId,
+      type: 'frame',
+      position: { x: 0, y: 0 },
+      data: {
+        title: 'Frame',
+        notes: '',
+        width: 520,
+        height: 360,
+      },
+    };
+    const nextNodes = workflow.nodes.map((node) => {
+      if (!selectedNonFrameIds.has(node.id)) return node;
+      return { ...node, data: { ...node.data, frameId } };
+    });
+    return wrapWorkflowFramesAroundMembers({ ...workflow, nodes: [...nextNodes, frame] }, new Set([frameId]));
+  }
+
+  const targetFrameId = targetFrameForMerge(workflow.nodes, sourceFrameIds, selectedFrameIds);
+  if (!targetFrameId) return workflow;
+
+  const sourceMembers = new Set<string>(selectedNonFrameIds);
+  for (const node of workflow.nodes) {
+    if (node.type === 'frame') continue;
+    if (typeof node.data.frameId === 'string' && sourceFrameIds.has(node.data.frameId)) sourceMembers.add(node.id);
+  }
+
+  const removedFrameIds = new Set([...sourceFrameIds].filter((frameId) => frameId !== targetFrameId));
+  let changed = removedFrameIds.size > 0;
+  const nextNodes = workflow.nodes
+    .filter((node) => !removedFrameIds.has(node.id))
+    .map((node) => {
+      if (node.type === 'frame' || !sourceMembers.has(node.id)) return node;
+      if (node.data.frameId === targetFrameId) return node;
+      changed = true;
+      return { ...node, data: { ...node.data, frameId: targetFrameId } };
+    });
+
+  if (!changed) return workflow;
+  const nextWorkflow = {
+    ...workflow,
+    nodes: nextNodes,
+    edges: workflow.edges.filter((edge) => !removedFrameIds.has(edge.source) && !removedFrameIds.has(edge.target)),
+  };
+  return wrapWorkflowFramesAroundMembers(nextWorkflow, new Set([targetFrameId]));
+}
+
 export function wrapWorkflowFramesAroundMembers(workflow: ImageXWorkflow, frameIds?: Set<string>): ImageXWorkflow {
   const targetFrameIds = frameIds ?? new Set(workflow.nodes.filter((node) => node.type === 'frame').map((node) => node.id));
   if (targetFrameIds.size === 0) return workflow;
@@ -350,6 +422,13 @@ export function wrapWorkflowFramesAroundMembers(workflow: ImageXWorkflow, frameI
     };
   });
   return changed ? { ...workflow, nodes: nextNodes } : workflow;
+}
+
+function targetFrameForMerge(nodes: ImageXNode[], sourceFrameIds: Set<string>, selectedFrameIds: string[]): string | null {
+  for (const frameId of selectedFrameIds) {
+    if (sourceFrameIds.has(frameId)) return frameId;
+  }
+  return nodes.find((node) => node.type === 'frame' && sourceFrameIds.has(node.id))?.id ?? null;
 }
 
 export function duplicateWorkflowNodes(workflow: ImageXWorkflow, nodeIds: Set<string>, offset = 44): { workflow: ImageXWorkflow; copyIds: string[] } {

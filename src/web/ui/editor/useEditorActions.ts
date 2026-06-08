@@ -21,6 +21,7 @@ import { nodeMeta } from '../flow/meta.js';
 import type { UiEdge, UiNode } from '../flow/types.js';
 import { flowStore } from '../../state/flowStore.js';
 import {
+  addSelectionToFrame,
   attachNodeToFrameAtCenter,
   cloneWorkflow,
   cloneWorkflowNode,
@@ -30,7 +31,6 @@ import {
   duplicateWorkflowNodes,
   expandSelectionWithFrameMembers,
   frameMembers,
-  hoveredFrameForNodeCenter,
   refreshConnectedTargetHandles,
   refreshFrameSelectionState,
   removeFrameOnly as removeFrameOnlyFromWorkflow,
@@ -813,6 +813,18 @@ export function useEditorActions(deps: EditorActionsDeps) {
     updateFlowNodesAndCommit(result.nodes, false);
   }
 
+  function addSelectionToFrameAction() {
+    if (!workflow) return;
+    const ids = new Set(selectedNodeIds());
+    if (ids.size === 0 && selectedIdRef.current) ids.add(selectedIdRef.current);
+    if (ids.size === 0) return;
+    const currentWithLayout = syncLatestWorkflow() || syncFlowToWorkflow(workflow, nodesRef.current, edgesRef.current);
+    const nextWorkflow = addSelectionToFrame(currentWithLayout, ids);
+    if (snapshotsEqual(nextWorkflow, currentWithLayout)) return;
+    recordHistory();
+    applyWorkflow(nextWorkflow);
+  }
+
   // ─── Duplicate ─────────────────────────────────────────────────────────────
 
   function duplicateNode(nodeId: string) {
@@ -884,25 +896,6 @@ export function useEditorActions(deps: EditorActionsDeps) {
       updateFlowNodes(cleared);
       commitFlowToWorkflow(cleared, edgesRef.current);
     }
-  }
-
-  function handleNodeDragFrameState(nodeId: string, position: { x: number; y: number }) {
-    const current = nodesRef.current;
-    const withPosition = current.map((node) => (node.id === nodeId ? { ...node, position } : node));
-    const frameId = hoveredFrameForNodeCenter(withPosition, nodeId);
-    const highlighted = setHighlightedFrame(withPosition, frameId);
-    const dragged = withPosition.find((node) => node.id === nodeId);
-    const memberFrameId = typeof dragged?.data.workflowNode.data.frameId === 'string' ? dragged.data.workflowNode.data.frameId : null;
-    if (!memberFrameId) {
-      if (highlighted !== current) updateFlowNodes(highlighted);
-      return;
-    }
-    if (frameWrapRafRef.current) window.cancelAnimationFrame(frameWrapRafRef.current);
-    frameWrapRafRef.current = window.requestAnimationFrame(() => {
-      frameWrapRafRef.current = null;
-      const wrapped = wrapFramesAroundMembers(highlighted, new Set([memberFrameId]));
-      updateFlowNodes(wrapped.nodes);
-    });
   }
 
   function updateFlowNodesAndCommit(nextNodes: UiNode[], shouldRecordHistory = true) {
@@ -1166,8 +1159,8 @@ export function useEditorActions(deps: EditorActionsDeps) {
     showCompiledPrompt,
     updateFlowNodes,
     updateFlowEdges,
-    handleNodeDragFrameState,
     expandFramesForNode,
+    addSelectionToFrame: addSelectionToFrameAction,
     handleSelectionChange,
     handlePlacingMove,
     handlePlacingDrop,

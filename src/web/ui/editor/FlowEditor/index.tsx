@@ -41,7 +41,13 @@ import {
 } from '../../flow/nodes/ImageXNode.js';
 import { graphEngine } from '../../../state/graphEngine.js';
 import { refreshPreviewSurfaces } from '../../flow/imaging/index.js';
-import { moveFrameWithMembers, refreshFrameSelectionState } from '../../graph/operations.js';
+import {
+  hoveredFrameForNodeCenter,
+  moveFrameWithMembers,
+  refreshFrameSelectionState,
+  setHighlightedFrame,
+  wrapFramesAroundMembers,
+} from '../../graph/operations.js';
 
 const nodeTypes = {
   prompt: PromptNode,
@@ -66,7 +72,6 @@ export function FlowEditor({
   onPaneMenu,
   onSelectionMenu,
   onSelectionChangeIds,
-  onNodeDragHoverFrame,
   onNodeDragStopCheckFrames,
   onPaneClickClear,
   onCommitFlow,
@@ -82,7 +87,6 @@ export function FlowEditor({
   onPaneMenu: (position: { x: number; y: number }, flowPosition: { x: number; y: number }) => void;
   onSelectionMenu: (position: { x: number; y: number }) => void;
   onSelectionChangeIds: (nodeIds: string[], edgeIds: string[]) => void;
-  onNodeDragHoverFrame: (nodeId: string, position: { x: number; y: number }) => void;
   onNodeDragStopCheckFrames: (nodeId: string) => void;
   onPaneClickClear: () => void;
   onCommitFlow: () => void;
@@ -237,6 +241,24 @@ export function FlowEditor({
     (connection: Connection | UiEdge) => isCompatibleConnection(connection, flowStore.getWorkflowNodes(), flowStore.getEdges()),
     [],
   );
+  const updateFrameStateForNodeDrag = useCallback((nodeId: string) => {
+    const current = flowStore.getNodes();
+    const dragged = current.find((candidate) => candidate.id === nodeId);
+    if (!dragged || dragged.type === 'frame') return;
+
+    const hoveredFrameId = hoveredFrameForNodeCenter(current, nodeId);
+    let nextNodes = setHighlightedFrame(current, hoveredFrameId);
+    const selectedDraggedNodes = current.filter((candidate) => candidate.selected && candidate.type !== 'frame');
+    const impactedFrameIds = new Set<string>();
+    for (const candidate of selectedDraggedNodes.length ? selectedDraggedNodes : [dragged]) {
+      const frameId = candidate.data.workflowNode.data.frameId;
+      if (typeof frameId === 'string') impactedFrameIds.add(frameId);
+    }
+    if (impactedFrameIds.size > 0) {
+      nextNodes = wrapFramesAroundMembers(nextNodes, impactedFrameIds).nodes;
+    }
+    if (nextNodes !== current) flowStore.setNodes(nextNodes, { transient: true, graph: false });
+  }, []);
   const handleNodeDragStart = useCallback<NodeMouseHandler<UiNode>>((_, node) => {
     if (placingNodeId) return;
     onBeforeChange();
@@ -245,7 +267,7 @@ export function FlowEditor({
   const handleNodeDrag = useCallback<OnNodeDrag<UiNode>>((_, node) => {
     const active = frameDragRef.current;
     if (node.type !== 'frame') {
-      if (hasFrames) onNodeDragHoverFrame(node.id, node.position);
+      if (hasFrames) updateFrameStateForNodeDrag(node.id);
       return;
     }
     if (!active || node.id !== active.id) return;
@@ -253,7 +275,7 @@ export function FlowEditor({
     const moved = moveFrameWithMembers(flowStore.getNodes(), node.id, node.position, delta);
     if (moved.changed) flowStore.setNodes(moved.nodes, { transient: true, graph: false });
     frameDragRef.current = { id: node.id, position: node.position };
-  }, [hasFrames, onNodeDragHoverFrame]);
+  }, [hasFrames, updateFrameStateForNodeDrag]);
   const handleNodeDragStop = useCallback<OnNodeDrag<UiNode>>((_, node, draggedNodes) => {
     // Persist final positions to the durable flow store after transient live drag updates.
     const finalPositions = new Map(draggedNodes.map((draggedNode) => [draggedNode.id, draggedNode.position]));
@@ -265,7 +287,9 @@ export function FlowEditor({
 
     frameDragRef.current = null;
     if (node.type !== 'frame') {
-      onNodeDragStopCheckFrames(node.id);
+      const settledNodeIds = new Set(draggedNodes.filter((draggedNode) => draggedNode.type !== 'frame').map((draggedNode) => draggedNode.id));
+      if (settledNodeIds.size === 0) settledNodeIds.add(node.id);
+      for (const nodeId of settledNodeIds) onNodeDragStopCheckFrames(nodeId);
       return;
     }
     onCommitFlow();
