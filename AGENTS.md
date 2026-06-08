@@ -71,6 +71,7 @@ Gitignored local notes may exist. Treat them as private context only; do not quo
 ## Generation Architecture
 
 - Project generation is a durable daemon-managed job system, not client-only state. Shared types live in `src/shared/types.ts` (`GenerationRunMode`, `GenerationJobStatus`, `OutputNodeGenerationState`).
+- The web app may recover generation state through `/generate-status`, but `useProjectActions` must own exactly one active recovery poll. Polls must be aborted and sequence-checked on project load, workflow switch, dashboard close, and unmount so stale generation responses cannot patch the active editor.
 - Run modes are:
   - `selected`: run selected output nodes; run empty upstream output dependencies first, but reuse stored upstream output results when present.
   - `forced`: run selected output nodes and all upstream output dependencies again.

@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useEffect, useRef, useState } from 'react';
 import type {
   GenerationJobStatus,
   ImageXAsset,
@@ -27,6 +27,13 @@ import {
 import type { ConfirmDialogState, TextDialogState } from './types.js';
 
 // ─── Types ───────────────────────────────────────────────────────────────────
+
+type GenerationStatusPoll = {
+  projectId: string;
+  sequence: number;
+  controller: AbortController;
+  intervalId: ReturnType<typeof setInterval> | null;
+};
 
 export type ProjectActionsDeps = {
   project: ImageXProject | null;
@@ -83,10 +90,15 @@ export function useProjectActions(deps: ProjectActionsDeps) {
   const [assets, setAssets] = useState<ImageXAsset[]>([]);
   const [outputAssets, setOutputAssets] = useState<ImageXOutputAsset[]>([]);
   const [nodeAssets, setNodeAssets] = useState<ImageXNodeAsset[]>([]);
+  const generationPollRef = useRef<GenerationStatusPoll | null>(null);
+  const generationPollSequenceRef = useRef(0);
+
+  useEffect(() => () => stopGenerationPolling(), []);
 
   // ─── Internal helpers ──────────────────────────────────────────────────────
 
   function showDashboard(options: { navigate?: boolean; replace?: boolean } = {}) {
+    stopGenerationPolling();
     clearHistory();
     setProject(null);
     setOutputResults(new Map());
@@ -98,6 +110,7 @@ export function useProjectActions(deps: ProjectActionsDeps) {
   }
 
   function loadProject(nextProject: ImageXProject) {
+    stopGenerationPolling();
     clearHistory();
     setProject(nextProject);
     loadWorkflow(nextProject.workflow, nextProject.workflow.nodes[0]?.id ?? null);
@@ -112,29 +125,80 @@ export function useProjectActions(deps: ProjectActionsDeps) {
   }
 
   async function checkActiveGeneration(proj: ImageXProject) {
+    const projectId = proj.metadata.id;
+    const sequence = generationPollSequenceRef.current + 1;
+    const controller = new AbortController();
+    generationPollSequenceRef.current = sequence;
+    generationPollRef.current = {
+      projectId,
+      sequence,
+      controller,
+      intervalId: null,
+    };
+
     try {
-      const res = await fetch(`/api/projects/${encodeURIComponent(proj.metadata.id)}/generate-status`);
-      if (!res.ok) return;
-      const data = await res.json() as GenerationJobStatus;
+      const data = await fetchGenerationStatus(projectId, controller.signal);
+      if (!isCurrentGenerationPoll(projectId, sequence)) return;
       applyGenerationStatus(data);
-      if (!data.active && data.status !== 'running') return;
+      if (!isGenerationRunning(data)) {
+        stopGenerationPolling(sequence);
+        return;
+      }
 
-      // Poll until done (every 5s)
-      const pollInterval = setInterval(async () => {
-        try {
-          const pollRes = await fetch(`/api/projects/${encodeURIComponent(proj.metadata.id)}/generate-status`);
-          if (!pollRes.ok) { clearInterval(pollInterval); return; }
-          const pollData = await pollRes.json() as GenerationJobStatus;
-          applyGenerationStatus(pollData);
-
-          if (pollData.status !== 'running') {
-            clearInterval(pollInterval);
-          }
-        } catch {
-          clearInterval(pollInterval);
-        }
+      const intervalId = setInterval(() => {
+        void pollGenerationStatus(projectId, sequence);
       }, 5000);
-    } catch { /* ignore */ }
+      if (!isCurrentGenerationPoll(projectId, sequence)) {
+        clearInterval(intervalId);
+        return;
+      }
+      generationPollRef.current.intervalId = intervalId;
+    } catch {
+      if (controller.signal.aborted) return;
+      if (isCurrentGenerationPoll(projectId, sequence)) stopGenerationPolling(sequence);
+    }
+  }
+
+  async function pollGenerationStatus(projectId: string, sequence: number) {
+    const poll = generationPollRef.current;
+    if (!poll || poll.projectId !== projectId || poll.sequence !== sequence) return;
+
+    try {
+      const data = await fetchGenerationStatus(projectId, poll.controller.signal);
+      if (!isCurrentGenerationPoll(projectId, sequence)) return;
+      applyGenerationStatus(data);
+
+      if (!isGenerationRunning(data)) {
+        stopGenerationPolling(sequence);
+      }
+    } catch {
+      if (poll.controller.signal.aborted) return;
+      if (isCurrentGenerationPoll(projectId, sequence)) stopGenerationPolling(sequence);
+    }
+  }
+
+  async function fetchGenerationStatus(projectId: string, signal: AbortSignal): Promise<GenerationJobStatus> {
+    const res = await fetch(`/api/projects/${encodeURIComponent(projectId)}/generate-status`, { signal });
+    if (!res.ok) throw new Error(`Generation status request failed with ${res.status}`);
+    return await res.json() as GenerationJobStatus;
+  }
+
+  function isCurrentGenerationPoll(projectId: string, sequence: number) {
+    const current = generationPollRef.current;
+    return current?.projectId === projectId && current.sequence === sequence;
+  }
+
+  function isGenerationRunning(data: GenerationJobStatus) {
+    return data.active || data.status === 'running';
+  }
+
+  function stopGenerationPolling(sequence?: number) {
+    const current = generationPollRef.current;
+    if (!current) return;
+    if (sequence !== undefined && current.sequence !== sequence) return;
+    if (current.intervalId) clearInterval(current.intervalId);
+    current.controller.abort();
+    generationPollRef.current = null;
   }
 
   function applyGenerationStatus(data: GenerationJobStatus) {
