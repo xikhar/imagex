@@ -47,46 +47,58 @@ https://github.com/user-attachments/assets/1eb75c6d-c716-4d8e-aaa5-4fee26065e56
 ### Install
 
 ```bash
-git clone https://github.com/shikhargen/imagex.git
-cd imagex
-npm install
+npm install -g imagex
 ```
 
 ### Run
 
 ```bash
-npm run dev
+imagex
 ```
 
-This starts the local API and web UI:
+On first run, Imagex prompts you to authenticate with OpenAI Codex / ChatGPT, then starts the local app and opens the web UI.
 
-- App: `http://127.0.0.1:5173`
-- API: `http://127.0.0.1:3847`
-
-Open `http://127.0.0.1:5173` in your browser.
+- Web UI: `http://127.0.0.1:3847`
+- Data directory: `~/.imagex`
 
 ## Authentication
 
-Authenticate with Codex:
+Authenticate manually:
 
 ```bash
-npx tsx src/cli/index.ts auth
+imagex auth
 ```
 
 Check status:
 
 ```bash
-npx tsx src/cli/index.ts whoami
-npx tsx src/cli/index.ts doctor
+imagex status
+imagex doctor
 ```
+
+`imagex whoami` is also available as a status alias.
 
 Log out:
 
 ```bash
-npx tsx src/cli/index.ts logout
+imagex logout
 ```
 
 ## Development
+
+For local development from source:
+
+```bash
+git clone https://github.com/shikhargen/imagex.git
+cd imagex
+npm install
+npm run dev
+```
+
+This starts the local API and Vite dev UI:
+
+- App: `http://127.0.0.1:5173`
+- API: `http://127.0.0.1:3847`
 
 | Script               | Description                                      |
 | -------------------- | ------------------------------------------------ |

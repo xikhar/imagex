@@ -25,9 +25,11 @@ The current checkout is a Vite/React web app plus a local Express daemon. Do not
   - Production build: `npm run build`
   - Start built daemon/UI: `npm start`
 - CLI commands:
-  - Auth: `npx tsx src/cli/index.ts auth`
-  - Status: `npx tsx src/cli/index.ts whoami` or `npx tsx src/cli/index.ts doctor`
-  - Logout: `npx tsx src/cli/index.ts logout`
+  - First-run app: `imagex` checks Codex auth, prompts login when missing/stale, starts the local daemon on `127.0.0.1:3847`, and opens the built web UI.
+  - Auth: `imagex auth` or `npx tsx src/cli/index.ts auth`
+  - Status: `imagex status`, `imagex doctor`, or the matching `npx tsx src/cli/index.ts ...` source commands. `imagex whoami` remains a compatibility alias for `status`.
+  - Logout: `imagex logout` or `npx tsx src/cli/index.ts logout`
+  - Automation/dev server: `imagex ui --no-open` or `npx tsx src/cli/index.ts ui --no-open` starts the daemon/UI without the first-run auth prompt.
 
 ## Read These First
 
