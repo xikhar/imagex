@@ -45,6 +45,7 @@ import {
   hoveredFrameForNodeCenter,
   moveFrameWithMembers,
   refreshFrameSelectionState,
+  restoreNodePositions,
   setHighlightedFrame,
   wrapFramesAroundMembers,
 } from '../../graph/operations.js';
@@ -131,7 +132,12 @@ export function FlowEditor({
   }, [graphVersion]);
 
   const edgeReconnectSuccessful = useRef(true);
-  const frameDragRef = useRef<{ id: string; position: { x: number; y: number } } | null>(null);
+  const frameDragRef = useRef<{
+    id: string;
+    position: { x: number; y: number };
+    memberIds: Set<string>;
+    externalPositions: Map<string, { x: number; y: number }>;
+  } | null>(null);
   const reactFlowRef = useRef<ReactFlowInstance<UiNode, UiEdge> | null>(null);
   const canvasRef = useRef<HTMLElement | null>(null);
   const lastViewportZoomRef = useRef<number | null>(null);
@@ -262,7 +268,20 @@ export function FlowEditor({
   const handleNodeDragStart = useCallback<NodeMouseHandler<UiNode>>((_, node) => {
     if (placingNodeId) return;
     onBeforeChange();
-    if (node.type === 'frame') frameDragRef.current = { id: node.id, position: node.position };
+    if (node.type === 'frame') {
+      const current = flowStore.getNodes();
+      const memberIds = new Set(
+        current
+          .filter((candidate) => candidate.type !== 'frame' && candidate.data.workflowNode.data.frameId === node.id)
+          .map((candidate) => candidate.id)
+      );
+      const externalPositions = new Map(
+        current
+          .filter((candidate) => candidate.id !== node.id && !memberIds.has(candidate.id))
+          .map((candidate) => [candidate.id, candidate.data.workflowNode.position])
+      );
+      frameDragRef.current = { id: node.id, position: node.position, memberIds, externalPositions };
+    }
   }, [onBeforeChange, placingNodeId]);
   const handleNodeDrag = useCallback<OnNodeDrag<UiNode>>((_, node) => {
     const active = frameDragRef.current;
@@ -273,12 +292,31 @@ export function FlowEditor({
     if (!active || node.id !== active.id) return;
     const delta = { x: node.position.x - active.position.x, y: node.position.y - active.position.y };
     const moved = moveFrameWithMembers(flowStore.getNodes(), node.id, node.position, delta);
-    if (moved.changed) flowStore.setNodes(moved.nodes, { transient: true, graph: false });
-    frameDragRef.current = { id: node.id, position: node.position };
+    const restored = restoreNodePositions(moved.nodes, active.externalPositions);
+    if (moved.changed || restored !== moved.nodes) {
+      flowStore.setNodes(restored, { transient: true, graph: false });
+    }
+    frameDragRef.current = { ...active, position: node.position };
   }, [hasFrames, updateFrameStateForNodeDrag]);
   const handleNodeDragStop = useCallback<OnNodeDrag<UiNode>>((_, node, draggedNodes) => {
     // Persist final positions to the durable flow store after transient live drag updates.
     const finalPositions = new Map(draggedNodes.map((draggedNode) => [draggedNode.id, draggedNode.position]));
+    const activeFrameDrag = frameDragRef.current;
+    if (node.type === 'frame' && activeFrameDrag?.id === node.id) {
+      const updatedNodes = flowStore.getNodes().map((currentNode) => {
+        const externalPosition = activeFrameDrag.externalPositions.get(currentNode.id);
+        if (externalPosition) return { ...currentNode, position: externalPosition };
+        const finalPosition = currentNode.id === node.id || activeFrameDrag.memberIds.has(currentNode.id)
+          ? finalPositions.get(currentNode.id)
+          : undefined;
+        return finalPosition ? { ...currentNode, position: finalPosition } : currentNode;
+      });
+      flowStore.setNodes(updatedNodes, { graph: false });
+      frameDragRef.current = null;
+      onCommitFlow();
+      return;
+    }
+
     const updatedNodes = flowStore.getNodes().map((currentNode) => {
       const position = finalPositions.get(currentNode.id);
       return position ? { ...currentNode, position } : currentNode;

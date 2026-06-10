@@ -150,6 +150,17 @@ export function moveFrameWithMembers(
   return { nodes: changed ? nextNodes : nodes, changed };
 }
 
+export function restoreNodePositions(nodes: UiNode[], positions: Map<string, { x: number; y: number }>): UiNode[] {
+  let changed = false;
+  const nextNodes = nodes.map((node) => {
+    const position = positions.get(node.id);
+    if (!position || (node.position.x === position.x && node.position.y === position.y)) return node;
+    changed = true;
+    return { ...node, position };
+  });
+  return changed ? nextNodes : nodes;
+}
+
 export function attachNodeToFrameAtCenter(nodes: UiNode[], nodeId: string): GraphMutation<{ frameId: string | null }> {
   const dragged = nodes.find((node) => node.id === nodeId);
   if (!dragged || dragged.type === 'frame') return { nodes, changed: false };
@@ -203,7 +214,8 @@ export function detachNodesFromFrames(nodes: UiNode[], nodeIds: Set<string>): Gr
     return withWorkflowData(node, data);
   });
   if (!changed) return { nodes, changed: false };
-  return wrapFramesAroundMembers(nextNodes, affectedFrames);
+  const wrapped = wrapFramesAroundMembers(nextNodes, affectedFrames);
+  return { ...wrapped, nodes: refreshFrameSelectionState(wrapped.nodes), changed: true };
 }
 
 export function wrapFramesAroundMembers<T = undefined>(nodes: UiNode[], frameIds?: Set<string>, value?: T): GraphMutation<T> {

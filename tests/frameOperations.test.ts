@@ -6,8 +6,10 @@ import { syncFlowToWorkflow } from '../src/web/ui/flow/adapters.js';
 import {
   addSelectionToFrame,
   attachNodeToFrameAtCenter,
+  detachNodesFromFrames,
   moveFrameWithMembers,
   refreshFrameSelectionState,
+  restoreNodePositions,
   wrapWorkflowFramesAroundMembers,
 } from '../src/web/ui/graph/operations.js';
 
@@ -189,4 +191,26 @@ test('detached nodes can remain outside or reattach by dropping over a frame', (
   const reattached = attachNodeToFrameAtCenter([frame, inside], inside.id);
   assert.equal(reattached.changed, true);
   assert.equal(reattached.nodes.find((node) => node.id === inside.id)!.data.workflowNode.data.frameId, frame.id);
+});
+
+test('explicit detach preserves selection while moving the frame leaves the node behind', () => {
+  const frame = uiNode(workflowNode('frame', 'frame', { x: 100, y: 100 }, { width: 520, height: 360 }));
+  const child = uiNode(workflowNode('child', 'prompt', { x: 220, y: 240 }, { frameId: frame.id, width: 300, height: 160 }), true);
+
+  const detached = detachNodesFromFrames([frame, child], new Set([child.id]));
+  const detachedChild = detached.nodes.find((node) => node.id === child.id)!;
+  assert.equal(detachedChild.data.workflowNode.data.frameId, undefined);
+  assert.equal(detachedChild.selected, true);
+
+  const moved = moveFrameWithMembers(detached.nodes, frame.id, { x: 140, y: 140 }, { x: 40, y: 40 });
+  assert.deepEqual(moved.nodes.find((node) => node.id === child.id)!.position, child.position);
+});
+
+test('frame drag restores a selected detached node after React Flow group movement', () => {
+  const detached = uiNode(workflowNode('detached', 'prompt', { x: 220, y: 240 }, { width: 300, height: 160 }), true);
+  const groupMoved = { ...detached, position: { x: 260, y: 280 } };
+
+  const restored = restoreNodePositions([groupMoved], new Map([[detached.id, detached.position]]));
+  assert.deepEqual(restored[0]!.position, detached.position);
+  assert.equal(restored[0]!.selected, true);
 });
